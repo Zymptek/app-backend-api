@@ -14,10 +14,14 @@ async function bootstrap() {
   const nodeEnv: string = configService.get('NODE_ENV', 'development');
   const port: number = configService.get('PORT', 3000);
   const apiPrefix: string = configService.get('API_PREFIX', 'api/v1');
-  const corsOrigin: string = configService.get('CORS_ORIGIN', 'http://localhost:3000');
+  const corsOrigin: string = configService.get(
+    'CORS_ORIGIN',
+    'http://localhost:3000',
+  );
   const swaggerEnabled: boolean =
     configService.get('SWAGGER_ENABLED', 'true') === 'true';
-  const helmetEnabled: boolean = configService.get('HELMET_ENABLED', 'true') === 'true';
+  const helmetEnabled: boolean =
+    configService.get('HELMET_ENABLED', 'true') === 'true';
   const compressionEnabled: boolean =
     configService.get('COMPRESSION_ENABLED', 'true') === 'true';
 
@@ -52,8 +56,12 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix(apiPrefix);
 
-  // Swagger documentation (only in development and staging)
-  if (swaggerEnabled && (nodeEnv === 'development' || nodeEnv === 'staging')) {
+  // Swagger documentation (enabled in development, staging, and Vercel deployments)
+  const isVercel = process.env.VERCEL === '1';
+  if (
+    swaggerEnabled &&
+    (nodeEnv === 'development' || nodeEnv === 'staging' || isVercel)
+  ) {
     const config = new DocumentBuilder()
       .setTitle('Zymptek API')
       .setDescription(
@@ -73,10 +81,14 @@ async function bootstrap() {
   );
   console.log(`🌍 Environment: ${nodeEnv.toUpperCase()}`);
 
-  if (swaggerEnabled && (nodeEnv === 'development' || nodeEnv === 'staging')) {
-    console.log(
-      `📚 Swagger documentation: http://localhost:${port}/${apiPrefix}/docs`,
-    );
+  if (
+    swaggerEnabled &&
+    (nodeEnv === 'development' || nodeEnv === 'staging' || isVercel)
+  ) {
+    const baseUrl = isVercel
+      ? 'https://your-app.vercel.app'
+      : `http://localhost:${port}`;
+    console.log(`📚 Swagger documentation: ${baseUrl}/${apiPrefix}/docs`);
   }
 }
 void bootstrap();

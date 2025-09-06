@@ -119,6 +119,15 @@ The project includes `vercel.json` configuration for optimal deployment:
 - **Output Directory**: `dist`
 - **Runtime**: Node.js
 - **Max Duration**: 30 seconds
+- **Swagger Docs**: Enabled by default in Vercel deployments
+- **Environment**: Automatically detects Vercel and loads `.env.vercel`
+
+### Swagger Documentation in Vercel
+
+Swagger documentation is automatically enabled in Vercel deployments and accessible at:
+- **API Docs**: `https://your-app.vercel.app/api/v1/docs`
+
+The app detects Vercel environment and enables Swagger regardless of the NODE_ENV setting.
 
 ## 🧪 Testing
 
@@ -174,6 +183,12 @@ The application supports three environments with specific configurations:
 - **CORS**: Production domain origins only
 - **Usage**: `npm run start:prod`
 
+### Vercel Environment
+- **File**: `.env.vercel`
+- **Features**: Swagger docs enabled, info logging, moderate rate limiting
+- **CORS**: All origins allowed (for Vercel flexibility)
+- **Usage**: Automatically used when deployed to Vercel
+
 ### Environment Variables
 
 Each environment file contains:
@@ -200,6 +215,23 @@ The project includes GitHub Actions workflow that:
 - Executes unit and E2E tests
 - Builds the application
 - Uploads coverage reports
+- **Automatically deploys to Vercel**:
+  - `develop` branch → Development environment
+  - `main` branch → Production environment
+
+### Automated Deployment Setup
+
+1. **Add Vercel Token to GitHub Secrets**:
+   - Go to GitHub repository → Settings → Secrets and variables → Actions
+   - Add secret: `VERCEL_TOKEN` with your Vercel API token
+
+2. **Deploy Hooks Configured**:
+   - **Development**: Automatically deploys when pushing to `develop` branch
+   - **Production**: Automatically deploys when pushing to `main` branch
+
+3. **View Deployments**:
+   - Check GitHub Actions tab for deployment status
+   - Monitor Vercel dashboard for deployment logs
 
 ### Manual Deployment
 
@@ -212,6 +244,17 @@ The project includes GitHub Actions workflow that:
    ```bash
    npm run start:prod
    ```
+
+3. **Deploy to Vercel manually**
+   ```bash
+   # Install Vercel CLI
+   npm i -g vercel
+   
+   # Deploy
+   vercel --prod
+   ```
+
+For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## 🏗️ Project Structure
 

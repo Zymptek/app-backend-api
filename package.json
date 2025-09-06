@@ -27,7 +27,7 @@
     "type-check": "tsc --noEmit",
     "commit": "cz",
     "prepare": "husky",
-    "vercel:build": "npm run build:prod",
+    "vercel:build": "NODE_ENV=production VERCEL=1 npm run build",
     "vercel:dev": "npm run start:dev"
   },
   "dependencies": {

@@ -119,6 +119,15 @@ The project includes `vercel.json` configuration for optimal deployment:
 - **Output Directory**: `dist`
 - **Runtime**: Node.js
 - **Max Duration**: 30 seconds
+- **Swagger Docs**: Enabled by default in Vercel deployments
+- **Environment**: Automatically detects Vercel and loads `.env.vercel`
+
+### Swagger Documentation in Vercel
+
+Swagger documentation is automatically enabled in Vercel deployments and accessible at:
+- **API Docs**: `https://your-app.vercel.app/api/v1/docs`
+
+The app detects Vercel environment and enables Swagger regardless of the NODE_ENV setting.
 
 ## 🧪 Testing
 
@@ -174,6 +183,12 @@ The application supports three environments with specific configurations:
 - **CORS**: Production domain origins only
 - **Usage**: `npm run start:prod`
 
+### Vercel Environment
+- **File**: `.env.vercel`
+- **Features**: Swagger docs enabled, info logging, moderate rate limiting
+- **CORS**: All origins allowed (for Vercel flexibility)
+- **Usage**: Automatically used when deployed to Vercel
+
 ### Environment Variables
 
 Each environment file contains:
@@ -211,6 +226,15 @@ The project includes GitHub Actions workflow that:
 2. **Start in production**
    ```bash
    npm run start:prod
+   ```
+
+3. **Deploy to Vercel manually**
+   ```bash
+   # Install Vercel CLI
+   npm i -g vercel
+   
+   # Deploy
+   vercel --prod
    ```
 
 ## 🏗️ Project Structure

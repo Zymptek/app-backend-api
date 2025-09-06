@@ -7,7 +7,12 @@ import { AppService } from './app.service';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: [`.env.${process.env.NODE_ENV || 'development'}`, '.env'],
+      envFilePath: [
+        process.env.VERCEL
+          ? '.env.vercel'
+          : `.env.${process.env.NODE_ENV || 'development'}`,
+        '.env',
+      ],
       expandVariables: true,
     }),
   ],

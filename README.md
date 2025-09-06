@@ -215,23 +215,6 @@ The project includes GitHub Actions workflow that:
 - Executes unit and E2E tests
 - Builds the application
 - Uploads coverage reports
-- **Automatically deploys to Vercel**:
-  - `develop` branch → Development environment
-  - `main` branch → Production environment
-
-### Automated Deployment Setup
-
-1. **Add Vercel Token to GitHub Secrets**:
-   - Go to GitHub repository → Settings → Secrets and variables → Actions
-   - Add secret: `VERCEL_TOKEN` with your Vercel API token
-
-2. **Deploy Hooks Configured**:
-   - **Development**: Automatically deploys when pushing to `develop` branch
-   - **Production**: Automatically deploys when pushing to `main` branch
-
-3. **View Deployments**:
-   - Check GitHub Actions tab for deployment status
-   - Monitor Vercel dashboard for deployment logs
 
 ### Manual Deployment
 
@@ -253,8 +236,6 @@ The project includes GitHub Actions workflow that:
    # Deploy
    vercel --prod
    ```
-
-For detailed deployment instructions, see [DEPLOYMENT.md](./DEPLOYMENT.md).
 
 ## 🏗️ Project Structure
 

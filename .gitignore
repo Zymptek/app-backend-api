@@ -117,3 +117,7 @@ temp/
 logs
 *.log
 .vercel
+
+/generated/prisma
+
+/generated/prisma

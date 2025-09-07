@@ -13,11 +13,14 @@ A robust NestJS backend API built with TypeScript, featuring comprehensive testi
 - **Docker Support** - Containerized application
 - **Security** - Helmet, CORS, validation pipes
 - **Environment Configuration** - Flexible environment management
+- **Prisma ORM** - Type-safe database access with PostgreSQL
+- **Database Migrations** - Version-controlled database schema changes
 
 ## 📋 Prerequisites
 
 - Node.js (v18.x or v20.x)
 - npm or yarn
+- PostgreSQL database
 - Docker (optional)
 
 ## 🛠️ Installation
@@ -41,7 +44,24 @@ A robust NestJS backend API built with TypeScript, featuring comprehensive testi
    # Or for production: cp .env.production .env
    ```
 
-4. **Start the application**
+4. **Environment setup**
+   ```bash
+   # Copy the appropriate environment file
+   cp .env.development .env
+   # Or for staging: cp .env.staging .env
+   # Or for production: cp .env.production .env
+   ```
+
+5. **Database setup**
+   ```bash
+   # Generate Prisma client
+   npm run prisma:generate:dev
+
+   # Create and apply initial migration
+   npm run prisma:migrate:dev -- --name init
+   ```
+
+6. **Start the application**
    ```bash
    # Development
    npm run start:dev
@@ -54,80 +74,70 @@ A robust NestJS backend API built with TypeScript, featuring comprehensive testi
    npm run start:prod
    ```
 
-## 📚 Available Scripts
+## 🗄️ Database Management
 
-| Script | Description |
-|--------|-------------|
-| `npm run start` | Start the application |
-| `npm run start:dev` | Start in development mode with hot reload |
-| `npm run start:staging` | Start in staging mode |
-| `npm run start:prod` | Start in production mode |
-| `npm run start:debug` | Start in debug mode |
-| `npm run build` | Build the application |
-| `npm run build:dev` | Build for development environment |
-| `npm run build:staging` | Build for staging environment |
-| `npm run build:prod` | Build for production environment |
-| `npm run test` | Run unit tests |
-| `npm run test:watch` | Run tests in watch mode |
-| `npm run test:cov` | Run tests with coverage |
-| `npm run test:e2e` | Run end-to-end tests |
-| `npm run lint` | Run ESLint and fix issues |
-| `npm run lint:check` | Check for linting issues |
-| `npm run format` | Format code with Prettier |
-| `npm run format:check` | Check code formatting |
-| `npm run type-check` | Run TypeScript type checking |
-| `npm run commit` | Use commitizen for conventional commits |
-| `npm run vercel:build` | Build for Vercel deployment |
-| `npm run vercel:dev` | Start development server for Vercel |
+### **Safe Migration Workflow**
 
-## 🚀 Vercel Deployment
+**Making Schema Changes:**
+```bash
+# 1. Edit prisma/schema.prisma
+# Add/modify/remove models, fields, indexes, constraints
 
-### Deploy to Vercel
+# 2. Create migration with descriptive name
+npm run prisma:migrate:dev -- --name add_user_profile_table
 
-1. **Install Vercel CLI**
-   ```bash
-   npm i -g vercel
-   ```
+# 3. Review generated SQL (optional but recommended)
+cat prisma/migrations/[timestamp]_add_user_profile_table/migration.sql
 
-2. **Login to Vercel**
-   ```bash
-   vercel login
-   ```
+# 4. Test your changes
+npm run start:dev
+npm test
+```
 
-3. **Deploy**
-   ```bash
-   # Deploy to preview (staging)
-   vercel
+**Deploying Changes:**
+```bash
+# To Staging
+npm run prisma:migrate:staging
 
-   # Deploy to production
-   vercel --prod
-   ```
+# To Production
+npm run prisma:migrate:prod
+```
 
-### Environment Variables in Vercel
+### **Breaking Changes (DROP, ALTER, etc.)**
+```bash
+# 1. Create migration with --create-only flag
+npm run prisma:migrate:dev -- --create-only --name breaking_change
 
-Set up environment variables in your Vercel dashboard:
+# 2. Review the SQL file carefully
+cat prisma/migrations/[timestamp]_breaking_change/migration.sql
 
-- **Development**: Set variables for development environment
-- **Preview**: Set variables for staging environment  
-- **Production**: Set variables for production environment
+# 3. Modify SQL if needed (add data migration, etc.)
+# 4. Apply migration
+npm run prisma:migrate:dev
 
-### Vercel Configuration
+# 5. Test thoroughly
+npm run start:dev
+npm test
+```
 
-The project includes `vercel.json` configuration for optimal deployment:
+### **Common Commands**
+```bash
+# View database
+npm run prisma:studio:dev
 
-- **Build Command**: `npm run vercel:build`
-- **Output Directory**: `dist`
-- **Runtime**: Node.js
-- **Max Duration**: 30 seconds
-- **Swagger Docs**: Enabled by default in Vercel deployments
-- **Environment**: Automatically detects Vercel and loads `.env.vercel`
+# Check migration status
+npx prisma migrate status
 
-### Swagger Documentation in Vercel
+# Reset development database
+npm run prisma:migrate:dev -- --reset
+```
 
-Swagger documentation is automatically enabled in Vercel deployments and accessible at:
-- **API Docs**: `https://your-app.vercel.app/api/v1/docs`
-
-The app detects Vercel environment and enables Swagger regardless of the NODE_ENV setting.
+### **⚠️ Critical Rules**
+1. **ALWAYS use migrations** - Never use `db push` in any environment
+2. **ALWAYS test migrations on staging first** - Never go directly to production
+3. **ALWAYS review generated SQL** - Check for breaking changes
+4. **ALWAYS backup production database** before major migrations
+5. **NEVER delete migration files** from `prisma/migrations/` folder
 
 ## 🧪 Testing
 
@@ -183,11 +193,6 @@ The application supports three environments with specific configurations:
 - **CORS**: Production domain origins only
 - **Usage**: `npm run start:prod`
 
-### Vercel Environment
-- **File**: `.env.vercel`
-- **Features**: Swagger docs enabled, info logging, moderate rate limiting
-- **CORS**: All origins allowed (for Vercel flexibility)
-- **Usage**: Automatically used when deployed to Vercel
 
 ### Environment Variables
 
@@ -203,39 +208,8 @@ Each environment file contains:
 - JWT secrets (when implementing authentication)
 - External API keys
 
-## 🚀 Deployment
 
-### GitHub Actions
 
-The project includes GitHub Actions workflow that:
-
-- Runs on every push and pull request
-- Tests on multiple Node.js versions (18.x, 20.x)
-- Runs linting, type checking, and formatting checks
-- Executes unit and E2E tests
-- Builds the application
-- Uploads coverage reports
-
-### Manual Deployment
-
-1. **Build the application**
-   ```bash
-   npm run build
-   ```
-
-2. **Start in production**
-   ```bash
-   npm run start:prod
-   ```
-
-3. **Deploy to Vercel manually**
-   ```bash
-   # Install Vercel CLI
-   npm i -g vercel
-   
-   # Deploy
-   vercel --prod
-   ```
 
 ## 🏗️ Project Structure
 
@@ -244,7 +218,14 @@ src/
 ├── app.controller.ts      # Main application controller
 ├── app.module.ts          # Root application module
 ├── app.service.ts         # Main application service
-└── main.ts               # Application entry point
+├── main.ts               # Application entry point
+└── prisma/               # Prisma ORM integration
+    ├── prisma.service.ts # Prisma service for database operations
+    └── prisma.module.ts  # Prisma module for dependency injection
+
+prisma/
+├── schema.prisma         # Database schema definition
+└── migrations/           # Database migration files
 
 test/
 └── app.e2e-spec.ts       # End-to-end tests
@@ -253,9 +234,9 @@ test/
 └── workflows/
     └── ci.yml            # GitHub Actions CI/CD pipeline
 
-Dockerfile                 # Docker configuration
-docker-compose.yml        # Docker Compose configuration
-.env.example              # Environment variables template
+.env.development          # Development environment variables
+.env.staging             # Staging environment variables  
+.env.production          # Production environment variables
 ```
 
 ## 🔒 Security Features

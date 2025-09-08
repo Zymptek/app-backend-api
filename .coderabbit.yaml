@@ -25,6 +25,5 @@ auto_reply: true
 
 knowledge_base:
 code_guidelines:
-enabled: true
 filePatterns:
   - "**/CODING_STANDARDS.md"

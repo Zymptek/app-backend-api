@@ -15,9 +15,9 @@ export class AppController {
   }
 
   @Get('health/supabase')
-  async checkSupabaseHealth() {
+  checkSupabaseHealth() {
     try {
-      const client = this.supabaseService.getClient();
+      this.supabaseService.getClient();
       // Simple health check - just verify the client is created
       return {
         status: 'ok',
@@ -28,7 +28,7 @@ export class AppController {
       return {
         status: 'error',
         message: 'Supabase client initialization failed',
-        error: error.message,
+        error: error instanceof Error ? error.message : 'Unknown error',
         timestamp: new Date().toISOString(),
       };
     }

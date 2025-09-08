@@ -27,10 +27,11 @@ async function bootstrap() {
 
   // Security middleware
   if (helmetEnabled) {
-    app.use(helmet() as any);
+    app.use(helmet());
   }
 
   if (compressionEnabled) {
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-call
     app.use(compression());
   }
 
@@ -56,12 +57,7 @@ async function bootstrap() {
   // API prefix
   app.setGlobalPrefix(apiPrefix);
 
-  // Swagger documentation (enabled in development, staging, and Vercel deployments)
-  const isVercel = process.env.VERCEL === '1';
-  if (
-    swaggerEnabled &&
-    (nodeEnv === 'development' || nodeEnv === 'staging' || isVercel)
-  ) {
+  if (swaggerEnabled && (nodeEnv === 'development' || nodeEnv === 'staging')) {
     const config = new DocumentBuilder()
       .setTitle('Zymptek API')
       .setDescription(
@@ -81,13 +77,8 @@ async function bootstrap() {
   );
   console.log(`🌍 Environment: ${nodeEnv.toUpperCase()}`);
 
-  if (
-    swaggerEnabled &&
-    (nodeEnv === 'development' || nodeEnv === 'staging' || isVercel)
-  ) {
-    const baseUrl = isVercel
-      ? 'https://your-app.vercel.app'
-      : `http://localhost:${port}`;
+  if (swaggerEnabled && (nodeEnv === 'development' || nodeEnv === 'staging')) {
+    const baseUrl = `http://localhost:${port}`;
     console.log(`📚 Swagger documentation: ${baseUrl}/${apiPrefix}/docs`);
   }
 }

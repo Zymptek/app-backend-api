@@ -4,7 +4,6 @@ import { SupabaseService } from './supabase.service';
 
 describe('SupabaseService', () => {
   let service: SupabaseService;
-  let configService: ConfigService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -27,7 +26,6 @@ describe('SupabaseService', () => {
     }).compile();
 
     service = module.get<SupabaseService>(SupabaseService);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   it('should be defined', () => {

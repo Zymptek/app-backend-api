@@ -291,23 +291,30 @@ CREATE POLICY "Admins can update buyer profiles" ON "public"."buyer_profiles"
 CREATE POLICY "Service role full access buyer profiles" ON "public"."buyer_profiles"
     FOR ALL USING (auth.role() = 'service_role') WITH CHECK (auth.role() = 'service_role');
 
--- Generic updatedAt trigger
+-- Generic updatedAt trigger for camelCase tables
 CREATE OR REPLACE FUNCTION public.set_updated_at_camel() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN NEW."updatedAt" = now(); RETURN NEW; END $$;
+
+-- Generic updatedAt trigger for snake_case tables
+CREATE OR REPLACE FUNCTION public.set_updated_at_snake() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN NEW.updated_at = now(); RETURN NEW; END $$;
+
+-- Add updatedAt triggers for users table (camelCase)
 CREATE TRIGGER set_users_updated_at
 BEFORE UPDATE ON "public"."users"
 FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_camel();
 
--- Add updatedAt triggers for profile tables
+-- Add updatedAt triggers for profile tables (snake_case)
 CREATE TRIGGER set_admin_profiles_updated_at
 BEFORE UPDATE ON "public"."admin_profiles"
-FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_camel();
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_snake();
 
 CREATE TRIGGER set_seller_profiles_updated_at
 BEFORE UPDATE ON "public"."seller_profiles"
-FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_camel();
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_snake();
 
 CREATE TRIGGER set_buyer_profiles_updated_at
 BEFORE UPDATE ON "public"."buyer_profiles"
-FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_camel();
+FOR EACH ROW EXECUTE FUNCTION public.set_updated_at_snake();

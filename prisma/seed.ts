@@ -110,32 +110,39 @@ async function main() {
     console.log('✅ User created in Supabase Auth:', authData.user?.id);
 
     // Create admin user in database with real Supabase ID
-    const adminUser = await prisma.user.create({
-      data: {
-        supabaseId: authData.user!.id, // Real Supabase UID
-        email: adminEmail,
-        firstName: adminFirstName,
-        lastName: adminLastName,
-        userType: UserType.admin,
-        status: UserStatus.active,
-        emailVerified: true,
-        profileComplete: true,
-        companyName: adminCompany,
-        country: adminCountry,
-        verificationData: {},
-        adminProfile: {
-          create: {
-            fullName: `${adminFirstName} ${adminLastName}`,
-            permissions: ['read', 'write', 'admin'],
-            isActive: true,
-            adminNotes: 'System administrator account created via seed',
+    let adminUser;
+    try {
+      adminUser = await prisma.user.create({
+        data: {
+          supabaseId: authData.user!.id, // Real Supabase UID
+          email: adminEmail,
+          firstName: adminFirstName,
+          lastName: adminLastName,
+          userType: UserType.admin,
+          status: UserStatus.active,
+          emailVerified: true,
+          profileComplete: true,
+          companyName: adminCompany,
+          country: adminCountry,
+          verificationData: {},
+          adminProfile: {
+            create: {
+              fullName: `${adminFirstName} ${adminLastName}`,
+              permissions: ['read', 'write', 'admin'],
+              isActive: true,
+              adminNotes: 'System administrator account created via seed',
+            },
           },
         },
-      },
-      include: {
-        adminProfile: true,
-      },
-    });
+        include: {
+          adminProfile: true,
+        },
+      });
+    } catch (dbErr) {
+      // rollback Supabase user to keep systems consistent
+      await supabase.auth.admin.deleteUser(authData.user!.id).catch(() => undefined);
+      throw dbErr;
+    }
 
     console.log('✅ Admin user created successfully!');
     console.log('📧 Email: [REDACTED]');

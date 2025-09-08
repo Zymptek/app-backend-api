@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminController } from './admin.controller';
 import { PrismaService } from '../prisma/prisma.service';
+import { SupabaseService } from '../supabase/supabase.service';
 
 describe('AdminModule', () => {
   let module: TestingModule;
@@ -14,6 +15,13 @@ describe('AdminModule', () => {
             user: {
               count: jest.fn(),
             },
+          },
+        },
+        {
+          provide: SupabaseService,
+          useValue: {
+            getClient: jest.fn(),
+            getServiceRoleClient: jest.fn(),
           },
         },
         AdminController,

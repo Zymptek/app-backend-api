@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminController } from './admin.controller';
 import { PrismaService } from '../prisma/prisma.service';
+import { SupabaseService } from '../supabase/supabase.service';
 import { UserType, UserStatus } from '@prisma/client';
 import type { AdminUser } from '../admin-auth/decorators/current-admin.decorator';
 
@@ -38,6 +39,13 @@ describe('AdminController', () => {
             user: {
               count: jest.fn(),
             },
+          },
+        },
+        {
+          provide: SupabaseService,
+          useValue: {
+            getClient: jest.fn(),
+            getServiceRoleClient: jest.fn(),
           },
         },
       ],

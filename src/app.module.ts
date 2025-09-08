@@ -4,7 +4,7 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { SupabaseModule } from './supabase/supabase.module';
 import { PrismaModule } from './prisma/prisma.module';
-import { AdminAuthModule } from './admin-auth/admin-auth.module';
+import { AdminAuthModule } from './admin-auth/auth.module';
 import { AdminModule } from './admin/admin.module';
 
 @Module({

@@ -39,6 +39,18 @@ describe('PrismaService', () => {
     expect(userClient).toHaveProperty('$disconnect');
   });
 
+  it('should have withServiceRoleClient method', () => {
+    expect(typeof service.withServiceRoleClient).toBe('function');
+  });
+
+  it('should have withUserClient method', () => {
+    expect(typeof service.withUserClient).toBe('function');
+  });
+
+  it('should have withSupabaseUserClient method', () => {
+    expect(typeof service.withSupabaseUserClient).toBe('function');
+  });
+
   it('should connect on module init', async () => {
     // Mock the $connect method
     const mockConnect = jest.fn().mockResolvedValue(undefined);

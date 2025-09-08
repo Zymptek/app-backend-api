@@ -12,8 +12,8 @@ datasource db {
 // Main User Table
 // ========================
 model User {
-  id               String     @id @default(uuid())                // Unique identifier
-  supabaseId       String?    @unique                             // Supabase auth UID
+  id               String     @id @default(uuid()) @db.Uuid       // Unique identifier
+  supabaseId       String     @db.Uuid @unique                    // Supabase auth UID
   email            String     @unique                             // Email address
   passwordHash     String?                                        // Hashed password
   userType         UserType                                       // User role
@@ -31,9 +31,12 @@ model User {
   updatedAt        DateTime   @updatedAt                          // Last update time
 
   // Relations
-  adminProfile     AdminProfile?
+  adminProfile     AdminProfile? @relation("AdminProfileUser")
   sellerProfile    SellerProfile?
   buyerProfile     BuyerProfile?
+  
+  // Admin relations
+  createdAdminProfiles AdminProfile[] @relation("AdminProfileCreator")
 
   @@map("users")
 }
@@ -42,17 +45,18 @@ model User {
 // Admin Profile
 // ========================
 model AdminProfile {
-  userId      String   @id @map("user_id")                        // FK to users.id
+  userId      String   @id @map("user_id") @db.Uuid               // FK to users.id
   fullName    String?  @map("full_name")                          // Display name
   permissions String[] @default([])                               // Array of permissions
-  createdBy   String?  @map("created_by")                         // Creator admin
+  createdBy   String?  @map("created_by") @db.Uuid                // Creator admin
   isActive    Boolean  @default(true) @map("is_active")           // Active admin?
   adminNotes  String?  @map("admin_notes")                        // Notes
   createdAt   DateTime @default(now()) @map("created_at")         // Creation time
-  updatedAt   DateTime @updatedAt @map("updated_at")              // Last update
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") // Last update
 
-  // Relation
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Relations
+  user      User  @relation("AdminProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+  creator   User? @relation("AdminProfileCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@map("admin_profiles")
 }
@@ -61,12 +65,12 @@ model AdminProfile {
 // Seller Profile
 // ========================
 model SellerProfile {
-  userId            String   @id @map("user_id")                  // FK to users.id
+  userId            String   @id @map("user_id") @db.Uuid         // FK to users.id
   verified          Boolean  @default(false)                      // Verified by admin?
-  verifiedBy        String?  @map("verified_by")                  // Admin ID
+  verifiedBy        String?  @map("verified_by") @db.Uuid         // Admin ID
   verificationNotes String?  @map("verification_notes")           // Notes
   createdAt         DateTime @default(now()) @map("created_at")   // Creation time
-  updatedAt         DateTime @updatedAt @map("updated_at")        // Last update
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") // Last update
 
   // Flexible JSON fields
   businessInfo      Json?    @map("business_info")                // Dynamic business details
@@ -84,12 +88,12 @@ model SellerProfile {
 // Buyer Profile
 // ========================
 model BuyerProfile {
-  userId            String   @id @map("user_id")                  // FK to users.id
+  userId            String   @id @map("user_id") @db.Uuid         // FK to users.id
   verified          Boolean  @default(false)                      // Verified by admin?
-  verifiedBy        String?  @map("verified_by")                  // Admin ID
+  verifiedBy        String?  @map("verified_by") @db.Uuid         // Admin ID
   verificationNotes String?  @map("verification_notes")           // Notes
   createdAt         DateTime @default(now()) @map("created_at")   // Creation time
-  updatedAt         DateTime @updatedAt @map("updated_at")        // Last update
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") // Last update
 
   // Flexible JSON fields
   procurementInfo   Json?    @map("procurement_info")             // Procurement details

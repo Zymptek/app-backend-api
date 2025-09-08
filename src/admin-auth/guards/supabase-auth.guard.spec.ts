@@ -32,14 +32,16 @@ describe('SupabaseAuthGuard', () => {
     buyerProfile: null,
   };
 
+  const mockRequest = {
+    headers: {
+      authorization: 'Bearer valid-token',
+    },
+    path: '/api/v1/admin/dashboard',
+  };
+
   const mockExecutionContext = {
     switchToHttp: () => ({
-      getRequest: () => ({
-        headers: {
-          authorization: 'Bearer valid-token',
-        },
-        path: '/api/v1/admin/dashboard',
-      }),
+      getRequest: () => mockRequest,
     }),
   } as ExecutionContext;
 
@@ -91,15 +93,49 @@ describe('SupabaseAuthGuard', () => {
       expect(mockSupabaseClient.auth.getUser).toHaveBeenCalledWith(
         'valid-token',
       );
+
+      // Verify guard side-effect: admin should be attached to request
+      const request = mockExecutionContext.switchToHttp().getRequest();
+      expect(request.admin).toBeDefined();
+      expect(request.admin).toEqual({
+        ...mockDbUser,
+        supabaseUser: {
+          ...mockUser,
+          access_token: 'valid-token',
+        },
+      });
+    });
+
+    it('should attach admin user to request object', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      (prismaService.user.findFirst as jest.Mock).mockResolvedValue(mockDbUser);
+
+      await guard.canActivate(mockExecutionContext);
+
+      // Verify that the guard attached the admin user to the request
+      expect(mockRequest.admin).toBeDefined();
+      expect(mockRequest.admin).toEqual({
+        ...mockDbUser,
+        supabaseUser: {
+          ...mockUser,
+          access_token: 'valid-token',
+        },
+      });
     });
 
     it('should throw UnauthorizedException when no token provided', async () => {
+      const requestWithoutToken = {
+        headers: {},
+        path: '/api/v1/admin/dashboard',
+      };
+
       const contextWithoutToken = {
         switchToHttp: () => ({
-          getRequest: () => ({
-            headers: {},
-            path: '/api/v1/admin/dashboard',
-          }),
+          getRequest: () => requestWithoutToken,
         }),
       } as ExecutionContext;
 
@@ -114,6 +150,17 @@ describe('SupabaseAuthGuard', () => {
         error: { message: 'Invalid token' },
       });
 
+      await expect(guard.canActivate(mockExecutionContext)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException when DB user is missing', async () => {
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+      (prismaService.user.findFirst as jest.Mock).mockResolvedValue(null);
       await expect(guard.canActivate(mockExecutionContext)).rejects.toThrow(
         UnauthorizedException,
       );

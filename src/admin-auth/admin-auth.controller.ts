@@ -5,7 +5,18 @@ import {
   HttpCode,
   HttpStatus,
   UseGuards,
+  Req,
+  UnauthorizedException,
 } from '@nestjs/common';
+
+interface AuthenticatedRequest {
+  admin?: {
+    supabaseUser?: {
+      id: string;
+      access_token: string;
+    };
+  };
+}
 import {
   ApiTags,
   ApiOperation,
@@ -75,10 +86,22 @@ export class AdminAuthController {
     status: 401,
     description: 'Unauthorized - invalid or expired token',
   })
-  async signOut(): Promise<{ message: string }> {
-    // Extract token from request headers (this would be done by the guard)
-    // For now, we'll just return success since the guard already validated the token
-    return this.adminAuthService.signOut(); // Token is already validated by guard
+  async signOut(
+    @Req() req: AuthenticatedRequest,
+  ): Promise<{ message: string }> {
+    // Get user ID and access token from the authenticated request (set by SupabaseAuthGuard)
+    const userId = req.admin?.supabaseUser?.id;
+    const accessToken = req.admin?.supabaseUser?.access_token;
+
+    if (!userId) {
+      throw new UnauthorizedException('User ID not found in request');
+    }
+
+    if (!accessToken) {
+      throw new UnauthorizedException('Access token not found in request');
+    }
+
+    return this.adminAuthService.signOut(userId, accessToken);
   }
 
   @Post('refresh')

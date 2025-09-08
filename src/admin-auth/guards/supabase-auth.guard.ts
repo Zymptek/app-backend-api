@@ -64,7 +64,10 @@ export class SupabaseAuthGuard implements CanActivate {
       // Attach both Supabase user and database user to request
       request.admin = {
         ...dbUser,
-        supabaseUser: user,
+        supabaseUser: {
+          ...user,
+          access_token: token, // Store the access token for signout
+        },
       };
 
       this.logger.log(`User authenticated: ${dbUser.userType}`);

@@ -18,6 +18,16 @@ describe('AdminAuthService', () => {
     },
   };
 
+  const mockSupabaseAdminClient = {
+    auth: {
+      getUser: jest.fn(),
+      admin: {
+        signOut: jest.fn(),
+        revokeRefreshTokensForUser: jest.fn(),
+      },
+    },
+  };
+
   const mockUser = {
     id: 'supabase-user-id',
     email: 'admin@zymptek.com',
@@ -58,6 +68,9 @@ describe('AdminAuthService', () => {
           provide: SupabaseService,
           useValue: {
             getClient: jest.fn().mockReturnValue(mockSupabaseClient),
+            getServiceRoleClient: jest
+              .fn()
+              .mockReturnValue(mockSupabaseAdminClient),
           },
         },
         {
@@ -68,6 +81,15 @@ describe('AdminAuthService', () => {
               findUnique: jest.fn(),
               update: jest.fn(),
             },
+            createServiceRoleClient: jest.fn().mockReturnValue({
+              $connect: jest.fn(),
+              $disconnect: jest.fn(),
+              user: {
+                findFirst: jest.fn(),
+                update: jest.fn(),
+              },
+            }),
+            withServiceRoleClient: jest.fn(),
           },
         },
       ],
@@ -116,8 +138,18 @@ describe('AdminAuthService', () => {
         error: null,
       });
 
-      (prismaService.user.findFirst as jest.Mock).mockResolvedValue(mockDbUser);
-      (prismaService.user.update as jest.Mock).mockResolvedValue(mockDbUser);
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(mockDbUser),
+          update: jest.fn().mockResolvedValue(mockDbUser),
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
 
       const result = await service.signIn(signInDto);
 
@@ -136,6 +168,15 @@ describe('AdminAuthService', () => {
       expect(mockSupabaseClient.auth.signInWithPassword).toHaveBeenCalledWith({
         email: 'admin@zymptek.com',
         password: 'password123',
+      });
+
+      expect(mockServiceRoleClient.user.findFirst).toHaveBeenCalledWith({
+        where: { supabaseId: mockUser.id },
+        include: { adminProfile: true },
+      });
+      expect(mockServiceRoleClient.user.update).toHaveBeenCalledWith({
+        where: { id: mockDbUser.id },
+        data: { lastLogin: expect.any(Date) },
       });
     });
 
@@ -157,13 +198,38 @@ describe('AdminAuthService', () => {
   });
 
   describe('signOut', () => {
-    it('should successfully sign out user', async () => {
-      mockSupabaseClient.auth.signOut.mockResolvedValue({ error: null });
+    it('should successfully sign out user with valid user ID and token', async () => {
+      const userId = 'user-123';
+      const accessToken = 'valid-access-token';
 
-      const result = await service.signOut();
+      mockSupabaseAdminClient.auth.admin.signOut.mockResolvedValue({
+        error: null,
+      });
+
+      const result = await service.signOut(userId, accessToken);
 
       expect(result).toEqual({ message: 'Signed out successfully' });
-      expect(mockSupabaseClient.auth.signOut).toHaveBeenCalled();
+      expect(mockSupabaseAdminClient.auth.admin.signOut).toHaveBeenCalledWith(
+        accessToken,
+        'global',
+      );
+    });
+
+    it('should throw UnauthorizedException when signout fails', async () => {
+      const userId = 'user-123';
+      const accessToken = 'invalid-access-token';
+
+      mockSupabaseAdminClient.auth.admin.signOut.mockResolvedValue({
+        error: { message: 'Signout failed' },
+      });
+
+      await expect(service.signOut(userId, accessToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(mockSupabaseAdminClient.auth.admin.signOut).toHaveBeenCalledWith(
+        accessToken,
+        'global',
+      );
     });
   });
 });

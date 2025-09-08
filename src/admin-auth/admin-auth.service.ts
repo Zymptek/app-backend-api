@@ -35,40 +35,48 @@ export class AdminAuthService {
 
       const { user, session } = data;
 
-      // Get user from database
-      const dbUser = await this.prismaService.user.findFirst({
-        where: {
-          supabaseId: user.id,
+      // Get user from database using service-role client to bypass RLS
+      const dbUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const dbUser = await client.user.findFirst({
+            where: {
+              supabaseId: user.id,
+            },
+            include: {
+              adminProfile: true,
+            },
+          });
+
+          if (!dbUser) {
+            this.logger.warn(`User not found in database: ${user.id}`);
+            throw new UnauthorizedException('User not found in database');
+          }
+
+          // Verify admin role
+          if (dbUser.userType !== UserType.admin) {
+            this.logger.warn(`Access denied for non-admin user`);
+            throw new UnauthorizedException(
+              'Access denied. Admin role required.',
+            );
+          }
+
+          // Check if user is active
+          if (dbUser.status !== UserStatus.active) {
+            this.logger.warn(`Access denied for inactive user`);
+            throw new UnauthorizedException(
+              'Access denied. Account is not active.',
+            );
+          }
+
+          // Update last login
+          await client.user.update({
+            where: { id: dbUser.id },
+            data: { lastLogin: new Date() },
+          });
+
+          return dbUser;
         },
-        include: {
-          adminProfile: true,
-        },
-      });
-
-      if (!dbUser) {
-        this.logger.warn(`User not found in database: ${user.id}`);
-        throw new UnauthorizedException('User not found in database');
-      }
-
-      // Verify admin role
-      if (dbUser.userType !== UserType.admin) {
-        this.logger.warn(`Access denied for non-admin user`);
-        throw new UnauthorizedException('Access denied. Admin role required.');
-      }
-
-      // Check if user is active
-      if (dbUser.status !== UserStatus.active) {
-        this.logger.warn(`Access denied for inactive user`);
-        throw new UnauthorizedException(
-          'Access denied. Account is not active.',
-        );
-      }
-
-      // Update last login
-      await this.prismaService.user.update({
-        where: { id: dbUser.id },
-        data: { lastLogin: new Date() },
-      });
+      );
 
       this.logger.log(`Admin signed in successfully`);
 
@@ -90,17 +98,26 @@ export class AdminAuthService {
     }
   }
 
-  async signOut(): Promise<{ message: string }> {
+  async signOut(
+    userId: string,
+    accessToken: string,
+  ): Promise<{ message: string }> {
     try {
-      const supabase = this.supabaseService.getClient();
-      const { error } = await supabase.auth.signOut();
+      // Use service-role client to revoke the user's session
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
 
-      if (error) {
-        this.logger.warn(`Sign out error: ${error.message}`);
-        throw new UnauthorizedException('Sign out failed');
+      // Sign out the user using their access token
+      const { error: signOutError } = await supabaseAdmin.auth.admin.signOut(
+        accessToken,
+        'global',
+      );
+
+      if (signOutError) {
+        this.logger.warn(`Sign out revocation error: ${signOutError.message}`);
+        throw new UnauthorizedException('Failed to revoke session');
       }
 
-      this.logger.log('Admin signed out successfully');
+      this.logger.log(`Admin signed out successfully for user`);
       return { message: 'Signed out successfully' };
     } catch (error) {
       this.logger.error(
@@ -131,21 +148,27 @@ export class AdminAuthService {
         throw new UnauthorizedException('Invalid refresh token');
       }
 
-      // Get user from database
-      const dbUser = await this.prismaService.user.findFirst({
-        where: {
-          supabaseId: user.id,
-        },
-        include: {
-          adminProfile: true,
-        },
-      });
+      // Get user from database using service-role client to bypass RLS
+      const dbUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const dbUser = await client.user.findFirst({
+            where: {
+              supabaseId: user.id,
+            },
+            include: {
+              adminProfile: true,
+            },
+          });
 
-      if (!dbUser || dbUser.userType !== UserType.admin) {
-        throw new UnauthorizedException(
-          'Invalid user or insufficient permissions',
-        );
-      }
+          if (!dbUser || dbUser.userType !== UserType.admin) {
+            throw new UnauthorizedException(
+              'Invalid user or insufficient permissions',
+            );
+          }
+
+          return dbUser;
+        },
+      );
 
       this.logger.log(`Session refreshed for admin`);
 
@@ -179,21 +202,27 @@ export class AdminAuthService {
         throw new UnauthorizedException('Invalid or expired token');
       }
 
-      // Get user from database
-      const dbUser = await this.prismaService.user.findFirst({
-        where: {
-          supabaseId: user.id,
-        },
-        include: {
-          adminProfile: true,
-        },
-      });
+      // Get user from database using service-role client to bypass RLS
+      const dbUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const dbUser = await client.user.findFirst({
+            where: {
+              supabaseId: user.id,
+            },
+            include: {
+              adminProfile: true,
+            },
+          });
 
-      if (!dbUser || dbUser.userType !== UserType.admin) {
-        throw new UnauthorizedException(
-          'Invalid user or insufficient permissions',
-        );
-      }
+          if (!dbUser || dbUser.userType !== UserType.admin) {
+            throw new UnauthorizedException(
+              'Invalid user or insufficient permissions',
+            );
+          }
+
+          return dbUser;
+        },
+      );
 
       return {
         ...dbUser,

@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UnauthorizedException } from '@nestjs/common';
 import { AdminAuthController } from './admin-auth.controller';
 import { AdminAuthService } from './admin-auth.service';
+import { SupabaseService } from '../supabase/supabase.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { AdminSignInDto } from './dto/admin-signin.dto';
 import { AdminAuthResponseDto } from './dto/admin-response.dto';
 import { UserType, UserStatus } from '@prisma/client';
@@ -44,6 +47,21 @@ describe('AdminAuthController', () => {
             getCurrentAdmin: jest.fn(),
           },
         },
+        {
+          provide: SupabaseService,
+          useValue: {
+            getClient: jest.fn(),
+            getServiceRoleClient: jest.fn(),
+          },
+        },
+        {
+          provide: PrismaService,
+          useValue: {
+            user: {
+              findFirst: jest.fn(),
+            },
+          },
+        },
       ],
     }).compile();
 
@@ -77,16 +95,49 @@ describe('AdminAuthController', () => {
   });
 
   describe('signOut', () => {
-    it('should successfully sign out admin user', async () => {
+    it('should successfully sign out admin user with valid user ID and token', async () => {
+      const mockRequest = {
+        admin: {
+          supabaseUser: {
+            id: 'user-123',
+            access_token: 'valid-access-token',
+          },
+        },
+      };
+
       const signOutSpy = jest
         .fn()
         .mockResolvedValue({ message: 'Signed out successfully' });
       authService.signOut = signOutSpy;
 
-      const result = await controller.signOut();
+      const result = await controller.signOut(mockRequest);
 
       expect(result).toEqual({ message: 'Signed out successfully' });
-      expect(signOutSpy).toHaveBeenCalledWith();
+      expect(signOutSpy).toHaveBeenCalledWith('user-123', 'valid-access-token');
+    });
+
+    it('should throw UnauthorizedException when user ID is not found', async () => {
+      const mockRequest = {
+        admin: {},
+      };
+
+      await expect(controller.signOut(mockRequest)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+
+    it('should throw UnauthorizedException when access token is not found', async () => {
+      const mockRequest = {
+        admin: {
+          supabaseUser: {
+            id: 'user-123',
+          },
+        },
+      };
+
+      await expect(controller.signOut(mockRequest)).rejects.toThrow(
+        UnauthorizedException,
+      );
     });
   });
 

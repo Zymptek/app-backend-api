@@ -38,7 +38,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
    */
   async withUserClient<T>(
     supabaseId: string,
-    fn: (client: PrismaClient) => Promise<T>,
+    fn: (client: Omit<PrismaClient, '$on' | '$connect' | '$disconnect' | '$transaction' | '$extends'>) => Promise<T>,
   ): Promise<T> {
     const client = new PrismaClient({
       datasources: {
@@ -48,23 +48,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       },
     });
 
-    // Create extended client with RLS context
-    const extendedClient = client.$extends({
-      query: {
-        $allModels: {
-          async $allOperations({ args, query }) {
-            // Set the user context for RLS policies
-            const claims = JSON.stringify({ sub: supabaseId });
-            await client.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
-            return query(args);
-          },
-        },
-      },
-    }) as unknown as PrismaClient;
-
     try {
       await client.$connect();
-      return await fn(extendedClient);
+      
+      // Execute within a transaction to ensure SET LOCAL and query are in same transaction
+      return await client.$transaction(async (tx) => {
+        // Set the user context for RLS policies once per transaction
+        const claims = JSON.stringify({ sub: supabaseId });
+        await tx.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
+        
+        // Execute the function with the transaction client
+        return await fn(tx);
+      });
     } finally {
       await client.$disconnect();
     }
@@ -77,7 +72,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
    */
   async withSupabaseUserClient<T>(
     supabaseUserId: string,
-    fn: (client: PrismaClient) => Promise<T>,
+    fn: (client: Omit<PrismaClient, '$on' | '$connect' | '$disconnect' | '$transaction' | '$extends'>) => Promise<T>,
   ): Promise<T> {
     const client = new PrismaClient({
       datasources: {
@@ -87,23 +82,18 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       },
     });
 
-    // Create extended client with RLS context
-    const extendedClient = client.$extends({
-      query: {
-        $allModels: {
-          async $allOperations({ args, query }) {
-            // Set the Supabase user context for RLS policies
-            const claims = JSON.stringify({ sub: supabaseUserId });
-            await client.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
-            return query(args);
-          },
-        },
-      },
-    }) as unknown as PrismaClient;
-
     try {
       await client.$connect();
-      return await fn(extendedClient);
+      
+      // Execute within a transaction to ensure SET LOCAL and query are in same transaction
+      return await client.$transaction(async (tx) => {
+        // Set the Supabase user context for RLS policies once per transaction
+        const claims = JSON.stringify({ sub: supabaseUserId });
+        await tx.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
+        
+        // Execute the function with the transaction client
+        return await fn(tx);
+      });
     } finally {
       await client.$disconnect();
     }

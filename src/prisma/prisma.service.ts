@@ -13,7 +13,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
    * The client is automatically connected and disconnected
    */
   async withServiceRoleClient<T>(
-    fn: (client: PrismaClient) => Promise<T>,
+    fn: (
+      client: Omit<
+        PrismaClient,
+        '$on' | '$connect' | '$disconnect' | '$transaction' | '$extends'
+      >,
+    ) => Promise<T>,
   ): Promise<T> {
     const client = new PrismaClient({
       datasources: {
@@ -22,13 +27,12 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         },
       },
     });
-
     try {
       await client.$connect();
       return await client.$transaction(async (tx) => {
         const claims = JSON.stringify({ role: 'service_role' });
         await tx.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
-        return fn(tx as unknown as PrismaClient);
+        return fn(tx);
       });
     } finally {
       await client.$disconnect();

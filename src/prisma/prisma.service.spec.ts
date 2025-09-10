@@ -61,5 +61,4 @@ describe('PrismaService', () => {
     await service.onModuleDestroy();
     expect(mockDisconnect).toHaveBeenCalled();
   });
-
 });

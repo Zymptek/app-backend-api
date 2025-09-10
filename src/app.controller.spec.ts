@@ -39,10 +39,12 @@ describe('AppController', () => {
   });
 
   describe('health/supabase', () => {
-    it('should return health status', async () => {
-      const result = await appController.checkSupabaseHealth();
+    it('should return health status', () => {
+      const result = appController.checkSupabaseHealth();
       expect(result.status).toBe('ok');
-      expect(result.message).toContain('Supabase client initialized successfully');
+      expect(result.message).toContain(
+        'Supabase client initialized successfully',
+      );
     });
   });
 });

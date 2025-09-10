@@ -1,55 +1,101 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
-// User Type Enum
+/// This model contains an expression index which requires additional setup for migrations. Visit https://pris.ly/d/expression-indexes for more info.
+model User {
+  id                   String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  supabaseId           String         @unique @db.Uuid
+  email                String
+  passwordHash         String?
+  userType             UserType
+  status               UserStatus     @default(pending_verification)
+  firstName            String?
+  lastName             String?
+  companyName          String?
+  phone                String?
+  country              String?
+  emailVerified        Boolean        @default(false)
+  profileComplete      Boolean        @default(false)
+  verificationData     Json?
+  lastLogin            DateTime?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @default(now()) @updatedAt
+  createdAdminProfiles AdminProfile[] @relation("AdminProfileCreator")
+  adminProfile         AdminProfile?  @relation("AdminProfileUser")
+  buyerProfile         BuyerProfile?
+  sellerProfile        SellerProfile?
+
+  @@map("users")
+}
+
+model AdminProfile {
+  userId      String   @id @map("user_id") @db.Uuid
+  fullName    String?  @map("full_name")
+  permissions String[] @default([])
+  createdBy   String?  @map("created_by") @db.Uuid
+  isActive    Boolean  @default(true) @map("is_active")
+  adminNotes  String?  @map("admin_notes")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  creator     User?    @relation("AdminProfileCreator", fields: [createdBy], references: [id])
+  user        User     @relation("AdminProfileUser", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("admin_profiles")
+}
+
+model SellerProfile {
+  userId            String   @id @map("user_id") @db.Uuid
+  verified          Boolean  @default(false)
+  verifiedBy        String?  @map("verified_by") @db.Uuid
+  verificationNotes String?  @map("verification_notes")
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at")
+  businessInfo      Json?    @map("business_info")
+  certifications    Json?    @map("certifications")
+  verificationDocs  Json?    @map("verification_documents")
+  customFields      Json?    @map("custom_fields")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("seller_profiles")
+}
+
+model BuyerProfile {
+  userId             String   @id @map("user_id") @db.Uuid
+  verified           Boolean  @default(false)
+  verifiedBy         String?  @map("verified_by") @db.Uuid
+  verificationNotes  String?  @map("verification_notes")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  procurementInfo    Json?    @map("procurement_info")
+  approvalWorkflow   Json?    @map("approval_workflow")
+  preferredSuppliers Json?    @map("preferred_suppliers")
+  customFields       Json?    @map("custom_fields")
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("buyer_profiles")
+}
+
 enum UserType {
   buyer
   seller
   admin
+
+  @@map("UserType")
 }
 
-// User Status Enum
 enum UserStatus {
   pending_verification
   active
   verified
   rejected
   suspended
-}
 
-// Users table model
-model User {
-  id                String     @id @default(uuid())
-  firebaseUid       String?    @unique
-  email             String     @unique
-  passwordHash      String?
-  userType          UserType
-  status            UserStatus @default(pending_verification)
-  firstName         String?
-  lastName          String?
-  companyName       String?
-  phone             String?
-  country           String?
-  buyerProfile      Json?
-  sellerProfile     Json?
-  verificationData  Json?
-  emailVerified     Boolean    @default(false)
-  profileComplete   Boolean    @default(false)
-  verifiedAt        DateTime?
-  lastLogin         DateTime?
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
-
-  @@map("users")
+  @@map("UserStatus")
 }

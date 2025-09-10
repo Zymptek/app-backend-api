@@ -36,14 +36,6 @@ describe('PrismaService', () => {
     expect(typeof service.withSupabaseUserClient).toBe('function');
   });
 
-  it('should throw error when createSupabaseUserClient is called', () => {
-    expect(() => {
-      service.createSupabaseUserClient();
-    }).toThrow(
-      'createSupabaseUserClient is removed. Use prismaService.withSupabaseUserClient(id, fn) instead.',
-    );
-  });
-
   it('should connect on module init', async () => {
     // Mock the $connect method
     const mockConnect = jest.fn().mockResolvedValue(undefined);

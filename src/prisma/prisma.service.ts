@@ -74,42 +74,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
   }
 
   /**
-   * @deprecated Use withUserClient instead to prevent connection leaks
-   */
-  createUserClient(supabaseId: string): PrismaClient {
-    const client = new PrismaClient({
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL,
-        },
-      },
-    });
-
-    // Set the user context for RLS
-    return client.$extends({
-      query: {
-        $allModels: {
-          async $allOperations({ args, query }) {
-            // Set the user context for RLS policies
-            const claims = JSON.stringify({ sub: supabaseId });
-            await client.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
-            return query(args);
-          },
-        },
-      },
-    }) as unknown as PrismaClient;
-  }
-
-  /**
-   * @deprecated Use withSupabaseUserClient instead to prevent connection leaks
-   */
-  createSupabaseUserClient(): never {
-    throw new Error(
-      'createSupabaseUserClient is removed. Use prismaService.withSupabaseUserClient(id, fn) instead.',
-    );
-  }
-
-  /**
    * Private helper method to execute a function with an authenticated user client
    * Both withUserClient and withSupabaseUserClient use this internally
    */

@@ -62,17 +62,4 @@ describe('PrismaService', () => {
     expect(mockDisconnect).toHaveBeenCalled();
   });
 
-  it('should create service role client', () => {
-    const serviceClient = service.createServiceRoleClient();
-    expect(serviceClient).toBeDefined();
-    expect(serviceClient).toHaveProperty('$connect');
-    expect(serviceClient).toHaveProperty('$disconnect');
-  });
-
-  it('should create user client with RLS context', () => {
-    const supabaseId = 'test-user-123';
-    const userClient = service.createUserClient(supabaseId);
-    expect(userClient).toBeDefined();
-    expect(userClient).toHaveProperty('$extends');
-  });
 });

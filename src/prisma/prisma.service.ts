@@ -25,7 +25,11 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
 
     try {
       await client.$connect();
-      return await fn(client);
+      return await client.$transaction(async (tx) => {
+        const claims = JSON.stringify({ role: 'service_role' });
+        await tx.$executeRaw`SET LOCAL "request.jwt.claims" = ${claims}`;
+        return fn(tx as unknown as PrismaClient);
+      });
     } finally {
       await client.$disconnect();
     }
@@ -63,20 +67,6 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
     ) => Promise<T>,
   ): Promise<T> {
     return this.withAuthenticatedUserClient(supabaseUserId, fn);
-  }
-
-  // Legacy methods for backward compatibility - these now use the new helpers internally
-  /**
-   * @deprecated Use withServiceRoleClient instead to prevent connection leaks
-   */
-  createServiceRoleClient(): PrismaClient {
-    return new PrismaClient({
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL,
-        },
-      },
-    });
   }
 
   /**

@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { SupabaseService } from '../supabase/supabase.service';
@@ -31,7 +32,13 @@ export class UsersService {
     search?: string,
   ): Promise<UserListResponseDto> {
     try {
-      const skip = (page - 1) * limit;
+      // Normalize and validate pagination inputs
+      const normalizedPage = Math.max(1, Math.floor(page) || 1);
+      const normalizedLimit = Math.min(
+        Math.max(1, Math.floor(limit) || 10),
+        100,
+      );
+      const skip = (normalizedPage - 1) * normalizedLimit;
 
       // Build where clause with proper type safety
       const where: {
@@ -54,13 +61,16 @@ export class UsersService {
       }
 
       if (search) {
-        // Sanitize search term to prevent injection
-        const sanitizedSearch = search.trim().replace(/[%_]/g, '\\$&');
+        // Properly escape search term: first escape backslashes, then escape % and _
+        const escapedSearch = search
+          .trim()
+          .replace(/\\/g, '\\\\') // Escape backslashes first
+          .replace(/[%_]/g, '\\$&'); // Then escape % and _
         where.OR = [
-          { email: { contains: sanitizedSearch, mode: 'insensitive' } },
-          { firstName: { contains: sanitizedSearch, mode: 'insensitive' } },
-          { lastName: { contains: sanitizedSearch, mode: 'insensitive' } },
-          { companyName: { contains: sanitizedSearch, mode: 'insensitive' } },
+          { email: { contains: escapedSearch, mode: 'insensitive' } },
+          { firstName: { contains: escapedSearch, mode: 'insensitive' } },
+          { lastName: { contains: escapedSearch, mode: 'insensitive' } },
+          { companyName: { contains: escapedSearch, mode: 'insensitive' } },
         ];
       }
 
@@ -71,7 +81,7 @@ export class UsersService {
             client.user.findMany({
               where,
               skip,
-              take: Math.min(limit, 100), // Limit max results to prevent abuse
+              take: normalizedLimit, // Use the normalized limit
               orderBy: { createdAt: 'desc' },
               select: {
                 id: true,
@@ -98,13 +108,13 @@ export class UsersService {
         },
       );
 
-      const totalPages = Math.ceil(result.total / limit);
+      const totalPages = Math.ceil(result.total / normalizedLimit);
 
       return {
         users: result.users.map((user) => this.mapUserToResponse(user)),
         total: result.total,
-        page,
-        limit,
+        page: normalizedPage,
+        limit: normalizedLimit, // Return the actual limit used
         totalPages,
       };
     } catch (error) {
@@ -151,7 +161,7 @@ export class UsersService {
       return this.mapUserToResponse(user);
     } catch (error) {
       this.logger.error(
-        `Error fetching user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Error fetching user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       if (error instanceof NotFoundException) {
         throw error;
@@ -291,25 +301,21 @@ export class UsersService {
 
           if (deleteError) {
             this.logger.error(
-              `Failed to rollback Supabase user ${supabaseUserId}: ${deleteError.message}`,
+              `Failed to rollback Supabase user: ${deleteError.message}`,
             );
             // Log the orphaned user for manual cleanup
             this.logger.error(
-              `ORPHANED SUPABASE USER: ${supabaseUserId} (email: ${createUserDto.email}) - Manual cleanup required`,
+              'ORPHANED SUPABASE USER - Manual cleanup required',
             );
           } else {
-            this.logger.log(
-              `Successfully rolled back Supabase user: ${supabaseUserId}`,
-            );
+            this.logger.log('Successfully rolled back Supabase user');
           }
         } catch (rollbackError) {
           this.logger.error(
             `Exception during Supabase user rollback: ${rollbackError instanceof Error ? rollbackError.message : 'Unknown error'}`,
           );
           // Log the orphaned user for manual cleanup
-          this.logger.error(
-            `ORPHANED SUPABASE USER: ${supabaseUserId} (email: ${createUserDto.email}) - Manual cleanup required`,
-          );
+          this.logger.error('ORPHANED SUPABASE USER - Manual cleanup required');
         }
       }
 
@@ -346,11 +352,9 @@ export class UsersService {
       createdAt: Date;
       updatedAt: Date;
     } | null = null;
-    let newEmail: string | undefined = undefined;
 
     try {
-      const { email, ...updateData } = updateUserDto;
-      newEmail = email;
+      const { email, userType, ...updateData } = updateUserDto;
 
       // Check if user exists
       existingUser = await this.prismaService.withServiceRoleClient(
@@ -363,6 +367,13 @@ export class UsersService {
 
       if (!existingUser) {
         throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Prevent userType changes to avoid orphaned profile records
+      if (userType && userType !== existingUser.userType) {
+        throw new BadRequestException(
+          'User type cannot be changed via this endpoint. User type changes require a separate migration process to handle related profile records safely.',
+        );
       }
 
       // If email is being updated, check for conflicts
@@ -398,12 +409,10 @@ export class UsersService {
         }
 
         emailUpdatedInSupabase = true;
-        this.logger.log(
-          `Email updated in Supabase for user: ${existingUser.supabaseId}`,
-        );
+        this.logger.log('Email updated in Supabase successfully');
       }
 
-      // Update user in database (include email if provided)
+      // Update user in database (include email if provided, exclude userType)
       const user = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.update({
@@ -411,6 +420,7 @@ export class UsersService {
             data: {
               ...updateData,
               ...(email ? { email } : {}), // Include email if provided
+              // userType is excluded to prevent orphaned profile records
             },
             select: {
               id: true,
@@ -433,7 +443,7 @@ export class UsersService {
         },
       );
 
-      this.logger.log(`User updated successfully: ${user.id}`);
+      this.logger.log('User updated successfully');
 
       return this.mapUserToResponse(user);
     } catch (error) {
@@ -453,12 +463,10 @@ export class UsersService {
             );
             // Log the inconsistent state for manual cleanup
             this.logger.error(
-              `EMAIL INCONSISTENCY: Supabase has ${newEmail}, Database has ${originalEmail} for user ${existingUser.supabaseId} - Manual cleanup required`,
+              'EMAIL INCONSISTENCY: Supabase and Database have different email values - Manual cleanup required',
             );
           } else {
-            this.logger.log(
-              `Successfully rolled back email in Supabase: ${existingUser.supabaseId}`,
-            );
+            this.logger.log('Successfully rolled back email in Supabase');
           }
         } catch (rollbackError) {
           this.logger.error(
@@ -466,13 +474,13 @@ export class UsersService {
           );
           // Log the inconsistent state for manual cleanup
           this.logger.error(
-            `EMAIL INCONSISTENCY: Supabase has ${newEmail}, Database has ${originalEmail} for user ${existingUser.supabaseId} - Manual cleanup required`,
+            'EMAIL INCONSISTENCY: Supabase and Database have different email values - Manual cleanup required',
           );
         }
       }
 
       this.logger.error(
-        `Error updating user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Error updating user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       if (
         error instanceof NotFoundException ||
@@ -540,12 +548,12 @@ export class UsersService {
         },
       );
 
-      this.logger.log(`User suspended successfully: ${user.id}`);
+      this.logger.log('User suspended successfully');
 
       return this.mapUserToResponse(user);
     } catch (error) {
       this.logger.error(
-        `Error suspending user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Error suspending user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       if (error instanceof NotFoundException) {
         throw error;
@@ -598,12 +606,12 @@ export class UsersService {
         },
       );
 
-      this.logger.log(`User unsuspended successfully: ${user.id}`);
+      this.logger.log('User unsuspended successfully');
 
       return this.mapUserToResponse(user);
     } catch (error) {
       this.logger.error(
-        `Error unsuspending user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Error unsuspending user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       if (error instanceof NotFoundException) {
         throw error;
@@ -649,12 +657,12 @@ export class UsersService {
         // Don't throw error here as the database deletion succeeded
       }
 
-      this.logger.log(`User deleted successfully: ${id}`);
+      this.logger.log('User deleted successfully');
 
       return { message: 'User deleted successfully' };
     } catch (error) {
       this.logger.error(
-        `Error deleting user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Error deleting user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       if (error instanceof NotFoundException) {
         throw error;
@@ -703,10 +711,7 @@ export class UsersService {
    * Utility method to clean up orphaned Supabase users
    * This can be called manually or via a scheduled job
    */
-  async cleanupOrphanedSupabaseUser(
-    supabaseUserId: string,
-    email: string,
-  ): Promise<boolean> {
+  async cleanupOrphanedSupabaseUser(supabaseUserId: string): Promise<boolean> {
     try {
       const supabaseAdmin = this.supabaseService.getServiceRoleClient();
       const { error } =
@@ -714,14 +719,12 @@ export class UsersService {
 
       if (error) {
         this.logger.error(
-          `Failed to cleanup orphaned Supabase user ${supabaseUserId} (${email}): ${error.message}`,
+          `Failed to cleanup orphaned Supabase user: ${error.message}`,
         );
         return false;
       }
 
-      this.logger.log(
-        `Successfully cleaned up orphaned Supabase user: ${supabaseUserId} (${email})`,
-      );
+      this.logger.log('Successfully cleaned up orphaned Supabase user');
       return true;
     } catch (error) {
       this.logger.error(

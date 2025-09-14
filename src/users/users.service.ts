@@ -1,0 +1,600 @@
+import {
+  Injectable,
+  NotFoundException,
+  ConflictException,
+  Logger,
+} from '@nestjs/common';
+import { SupabaseService } from '../supabase/supabase.service';
+import { PrismaService } from '../prisma/prisma.service';
+import {
+  CreateUserDto,
+  UpdateUserDto,
+  UserResponseDto,
+  UserListResponseDto,
+} from './dto';
+import { UserType, UserStatus } from '@prisma/client';
+
+@Injectable()
+export class UsersService {
+  private readonly logger = new Logger(UsersService.name);
+
+  constructor(
+    private readonly supabaseService: SupabaseService,
+    private readonly prismaService: PrismaService,
+  ) {}
+
+  async findAll(
+    page: number = 1,
+    limit: number = 10,
+    userType?: UserType,
+    status?: UserStatus,
+    search?: string,
+  ): Promise<UserListResponseDto> {
+    try {
+      const skip = (page - 1) * limit;
+
+      // Build where clause with proper type safety
+      const where: {
+        userType?: UserType;
+        status?: UserStatus;
+        OR?: Array<{
+          email?: { contains: string; mode: 'insensitive' };
+          firstName?: { contains: string; mode: 'insensitive' };
+          lastName?: { contains: string; mode: 'insensitive' };
+          companyName?: { contains: string; mode: 'insensitive' };
+        }>;
+      } = {};
+
+      if (userType) {
+        where.userType = userType;
+      }
+
+      if (status) {
+        where.status = status;
+      }
+
+      if (search) {
+        // Sanitize search term to prevent injection
+        const sanitizedSearch = search.trim().replace(/[%_]/g, '\\$&');
+        where.OR = [
+          { email: { contains: sanitizedSearch, mode: 'insensitive' } },
+          { firstName: { contains: sanitizedSearch, mode: 'insensitive' } },
+          { lastName: { contains: sanitizedSearch, mode: 'insensitive' } },
+          { companyName: { contains: sanitizedSearch, mode: 'insensitive' } },
+        ];
+      }
+
+      // Use parallel queries for better performance
+      const result = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const [users, total] = await Promise.all([
+            client.user.findMany({
+              where,
+              skip,
+              take: Math.min(limit, 100), // Limit max results to prevent abuse
+              orderBy: { createdAt: 'desc' },
+              select: {
+                id: true,
+                supabaseId: true,
+                email: true,
+                userType: true,
+                status: true,
+                firstName: true,
+                lastName: true,
+                companyName: true,
+                phone: true,
+                country: true,
+                emailVerified: true,
+                profileComplete: true,
+                lastLogin: true,
+                createdAt: true,
+                updatedAt: true,
+              },
+            }),
+            client.user.count({ where }),
+          ]);
+
+          return { users, total };
+        },
+      );
+
+      const totalPages = Math.ceil(result.total / limit);
+
+      return {
+        users: result.users.map((user) => this.mapUserToResponse(user)),
+        total: result.total,
+        page,
+        limit,
+        totalPages,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Error fetching users: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      throw error;
+    }
+  }
+
+  async findOne(id: string): Promise<UserResponseDto> {
+    try {
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const user = await client.user.findUnique({
+            where: { id },
+            select: {
+              id: true,
+              supabaseId: true,
+              email: true,
+              userType: true,
+              status: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              phone: true,
+              country: true,
+              emailVerified: true,
+              profileComplete: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+
+          if (!user) {
+            throw new NotFoundException(`User with ID ${id} not found`);
+          }
+
+          return user;
+        },
+      );
+
+      return this.mapUserToResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Error fetching user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  async create(createUserDto: CreateUserDto): Promise<UserResponseDto> {
+    try {
+      const { email, password, userType, ...userData } = createUserDto;
+
+      // Check if user already exists
+      const existingUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.findFirst({
+            where: { email },
+          });
+        },
+      );
+
+      if (existingUser) {
+        throw new ConflictException('User with this email already exists');
+      }
+
+      // Create user in Supabase Auth
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+      const { data: authData, error: authError } =
+        await supabaseAdmin.auth.admin.createUser({
+          email,
+          password,
+          email_confirm: true, // Auto-confirm email for admin-created users
+        });
+
+      if (authError || !authData.user) {
+        this.logger.error(
+          `Supabase user creation failed: ${authError?.message}`,
+        );
+        throw new Error('Failed to create user in authentication system');
+      }
+
+      // Create user in database with appropriate profile
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          // Create the main user record
+          const newUser = await client.user.create({
+            data: {
+              supabaseId: authData.user.id,
+              email,
+              userType,
+              status: UserStatus.active, // Admin-created users are active by default
+              emailVerified: true, // Admin-created users are email verified
+              profileComplete: false,
+              ...userData,
+            },
+            select: {
+              id: true,
+              supabaseId: true,
+              email: true,
+              userType: true,
+              status: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              phone: true,
+              country: true,
+              emailVerified: true,
+              profileComplete: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+
+          // Create appropriate profile based on user type
+          if (userType === UserType.admin) {
+            await client.adminProfile.create({
+              data: {
+                userId: newUser.id,
+                fullName:
+                  userData.firstName && userData.lastName
+                    ? `${userData.firstName} ${userData.lastName}`
+                    : null,
+                permissions: ['read', 'write'], // Default admin permissions
+                isActive: true,
+              },
+            });
+          } else if (userType === UserType.seller) {
+            await client.sellerProfile.create({
+              data: {
+                userId: newUser.id,
+                verified: false, // New sellers need verification
+                businessInfo: userData.companyName
+                  ? {
+                      companyName: userData.companyName,
+                      country: userData.country || null,
+                    }
+                  : undefined,
+              },
+            });
+          } else if (userType === UserType.buyer) {
+            await client.buyerProfile.create({
+              data: {
+                userId: newUser.id,
+                verified: false, // New buyers need verification
+                procurementInfo: userData.companyName
+                  ? {
+                      companyName: userData.companyName,
+                      country: userData.country || null,
+                    }
+                  : undefined,
+              },
+            });
+          }
+
+          return newUser;
+        },
+      );
+
+      this.logger.log(
+        `User created successfully: ${user.id} with ${userType} profile`,
+      );
+
+      return this.mapUserToResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Error creating user: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof ConflictException) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  async update(
+    id: string,
+    updateUserDto: UpdateUserDto,
+  ): Promise<UserResponseDto> {
+    try {
+      const { email, ...updateData } = updateUserDto;
+
+      // Check if user exists
+      const existingUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.findUnique({
+            where: { id },
+          });
+        },
+      );
+
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // If email is being updated, check for conflicts
+      if (email && email !== existingUser.email) {
+        const emailConflict = await this.prismaService.withServiceRoleClient(
+          async (client) => {
+            return client.user.findFirst({
+              where: { email },
+            });
+          },
+        );
+
+        if (emailConflict) {
+          throw new ConflictException('User with this email already exists');
+        }
+      }
+
+      // Update user in database
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.update({
+            where: { id },
+            data: updateData,
+            select: {
+              id: true,
+              supabaseId: true,
+              email: true,
+              userType: true,
+              status: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              phone: true,
+              country: true,
+              emailVerified: true,
+              profileComplete: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        },
+      );
+
+      // If email is being updated, update in Supabase Auth as well
+      if (email && email !== existingUser.email) {
+        const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+        const { error: updateError } =
+          await supabaseAdmin.auth.admin.updateUserById(
+            existingUser.supabaseId,
+            { email },
+          );
+
+        if (updateError) {
+          this.logger.warn(
+            `Failed to update email in Supabase: ${updateError.message}`,
+          );
+          // Don't throw error here as the database update succeeded
+        }
+      }
+
+      this.logger.log(`User updated successfully: ${user.id}`);
+
+      return this.mapUserToResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Error updating user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (
+        error instanceof NotFoundException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  async suspend(
+    id: string,
+    suspendUserDto: { reason?: string },
+  ): Promise<UserResponseDto> {
+    try {
+      // Check if user exists
+      const existingUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.findUnique({
+            where: { id },
+          });
+        },
+      );
+
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Update user status to suspended
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.update({
+            where: { id },
+            data: {
+              status: UserStatus.suspended,
+              verificationData: suspendUserDto.reason
+                ? {
+                    ...((existingUser.verificationData as Record<
+                      string,
+                      unknown
+                    >) || {}),
+                    suspensionReason: suspendUserDto.reason,
+                  }
+                : existingUser.verificationData || undefined,
+            },
+            select: {
+              id: true,
+              supabaseId: true,
+              email: true,
+              userType: true,
+              status: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              phone: true,
+              country: true,
+              emailVerified: true,
+              profileComplete: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        },
+      );
+
+      this.logger.log(`User suspended successfully: ${user.id}`);
+
+      return this.mapUserToResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Error suspending user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  async unsuspend(id: string): Promise<UserResponseDto> {
+    try {
+      // Check if user exists
+      const existingUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.findUnique({
+            where: { id },
+          });
+        },
+      );
+
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Update user status to active
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.update({
+            where: { id },
+            data: {
+              status: UserStatus.active,
+            },
+            select: {
+              id: true,
+              supabaseId: true,
+              email: true,
+              userType: true,
+              status: true,
+              firstName: true,
+              lastName: true,
+              companyName: true,
+              phone: true,
+              country: true,
+              emailVerified: true,
+              profileComplete: true,
+              lastLogin: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          });
+        },
+      );
+
+      this.logger.log(`User unsuspended successfully: ${user.id}`);
+
+      return this.mapUserToResponse(user);
+    } catch (error) {
+      this.logger.error(
+        `Error unsuspending user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  async delete(id: string): Promise<{ message: string }> {
+    try {
+      // Check if user exists
+      const existingUser = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          return client.user.findUnique({
+            where: { id },
+            select: { id: true, supabaseId: true, email: true },
+          });
+        },
+      );
+
+      if (!existingUser) {
+        throw new NotFoundException(`User with ID ${id} not found`);
+      }
+
+      // Delete user from database (cascade will handle related records)
+      await this.prismaService.withServiceRoleClient(async (client) => {
+        // Delete the user - this will cascade delete all related profiles
+        await client.user.delete({
+          where: { id },
+        });
+      });
+
+      // Delete user from Supabase Auth
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+      const { error: deleteError } = await supabaseAdmin.auth.admin.deleteUser(
+        existingUser.supabaseId,
+      );
+
+      if (deleteError) {
+        this.logger.warn(
+          `Failed to delete user from Supabase: ${deleteError.message}`,
+        );
+        // Don't throw error here as the database deletion succeeded
+      }
+
+      this.logger.log(`User deleted successfully: ${id}`);
+
+      return { message: 'User deleted successfully' };
+    } catch (error) {
+      this.logger.error(
+        `Error deleting user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  private mapUserToResponse(user: {
+    id: string;
+    supabaseId: string;
+    email: string;
+    userType: UserType;
+    status: UserStatus;
+    firstName: string | null;
+    lastName: string | null;
+    companyName: string | null;
+    phone: string | null;
+    country: string | null;
+    emailVerified: boolean;
+    profileComplete: boolean;
+    lastLogin: Date | null;
+    createdAt: Date;
+    updatedAt: Date;
+  }): UserResponseDto {
+    return {
+      id: user.id,
+      supabaseId: user.supabaseId,
+      email: user.email,
+      userType: user.userType,
+      status: user.status,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      companyName: user.companyName,
+      phone: user.phone,
+      country: user.country,
+      emailVerified: user.emailVerified,
+      profileComplete: user.profileComplete,
+      lastLogin: user.lastLogin,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+}

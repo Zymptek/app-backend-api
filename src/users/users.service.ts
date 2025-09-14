@@ -161,6 +161,8 @@ export class UsersService {
   }
 
   async create(createUserDto: CreateUserDto): Promise<UserResponseDto> {
+    let supabaseUserId: string | null = null;
+
     try {
       const { email, password, userType, ...userData } = createUserDto;
 
@@ -193,7 +195,10 @@ export class UsersService {
         throw new Error('Failed to create user in authentication system');
       }
 
-      // Create user in database with appropriate profile
+      // Store Supabase user ID for potential rollback
+      supabaseUserId = authData.user.id;
+
+      // Create user in database with appropriate profile in a single transaction
       const user = await this.prismaService.withServiceRoleClient(
         async (client) => {
           // Create the main user record
@@ -277,6 +282,37 @@ export class UsersService {
 
       return this.mapUserToResponse(user);
     } catch (error) {
+      // Compensating rollback: Delete Supabase user if DB transaction failed
+      if (supabaseUserId) {
+        try {
+          const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+          const { error: deleteError } =
+            await supabaseAdmin.auth.admin.deleteUser(supabaseUserId);
+
+          if (deleteError) {
+            this.logger.error(
+              `Failed to rollback Supabase user ${supabaseUserId}: ${deleteError.message}`,
+            );
+            // Log the orphaned user for manual cleanup
+            this.logger.error(
+              `ORPHANED SUPABASE USER: ${supabaseUserId} (email: ${createUserDto.email}) - Manual cleanup required`,
+            );
+          } else {
+            this.logger.log(
+              `Successfully rolled back Supabase user: ${supabaseUserId}`,
+            );
+          }
+        } catch (rollbackError) {
+          this.logger.error(
+            `Exception during Supabase user rollback: ${rollbackError instanceof Error ? rollbackError.message : 'Unknown error'}`,
+          );
+          // Log the orphaned user for manual cleanup
+          this.logger.error(
+            `ORPHANED SUPABASE USER: ${supabaseUserId} (email: ${createUserDto.email}) - Manual cleanup required`,
+          );
+        }
+      }
+
       this.logger.error(
         `Error creating user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -291,11 +327,33 @@ export class UsersService {
     id: string,
     updateUserDto: UpdateUserDto,
   ): Promise<UserResponseDto> {
+    let emailUpdatedInSupabase = false;
+    let originalEmail: string | null = null;
+    let existingUser: {
+      id: string;
+      supabaseId: string;
+      email: string;
+      userType: UserType;
+      status: UserStatus;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      phone: string | null;
+      country: string | null;
+      emailVerified: boolean;
+      profileComplete: boolean;
+      lastLogin: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    } | null = null;
+    let newEmail: string | undefined = undefined;
+
     try {
       const { email, ...updateData } = updateUserDto;
+      newEmail = email;
 
       // Check if user exists
-      const existingUser = await this.prismaService.withServiceRoleClient(
+      existingUser = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.findUnique({
             where: { id },
@@ -308,7 +366,7 @@ export class UsersService {
       }
 
       // If email is being updated, check for conflicts
-      if (email && email !== existingUser.email) {
+      if (email && existingUser && email !== existingUser.email) {
         const emailConflict = await this.prismaService.withServiceRoleClient(
           async (client) => {
             return client.user.findFirst({
@@ -320,14 +378,40 @@ export class UsersService {
         if (emailConflict) {
           throw new ConflictException('User with this email already exists');
         }
+
+        // Store original email for potential rollback
+        originalEmail = existingUser.email;
+
+        // Update email in Supabase Auth FIRST (before database update)
+        const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+        const { error: supabaseUpdateError } =
+          await supabaseAdmin.auth.admin.updateUserById(
+            existingUser.supabaseId,
+            { email },
+          );
+
+        if (supabaseUpdateError) {
+          this.logger.error(
+            `Failed to update email in Supabase: ${supabaseUpdateError.message}`,
+          );
+          throw new Error('Failed to update email in authentication system');
+        }
+
+        emailUpdatedInSupabase = true;
+        this.logger.log(
+          `Email updated in Supabase for user: ${existingUser.supabaseId}`,
+        );
       }
 
-      // Update user in database
+      // Update user in database (include email if provided)
       const user = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.update({
             where: { id },
-            data: updateData,
+            data: {
+              ...updateData,
+              ...(email ? { email } : {}), // Include email if provided
+            },
             select: {
               id: true,
               supabaseId: true,
@@ -349,27 +433,44 @@ export class UsersService {
         },
       );
 
-      // If email is being updated, update in Supabase Auth as well
-      if (email && email !== existingUser.email) {
-        const supabaseAdmin = this.supabaseService.getServiceRoleClient();
-        const { error: updateError } =
-          await supabaseAdmin.auth.admin.updateUserById(
-            existingUser.supabaseId,
-            { email },
-          );
-
-        if (updateError) {
-          this.logger.warn(
-            `Failed to update email in Supabase: ${updateError.message}`,
-          );
-          // Don't throw error here as the database update succeeded
-        }
-      }
-
       this.logger.log(`User updated successfully: ${user.id}`);
 
       return this.mapUserToResponse(user);
     } catch (error) {
+      // Compensating rollback: Revert Supabase email if database update failed
+      if (emailUpdatedInSupabase && originalEmail && existingUser) {
+        try {
+          const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+          const { error: rollbackError } =
+            await supabaseAdmin.auth.admin.updateUserById(
+              existingUser.supabaseId,
+              { email: originalEmail },
+            );
+
+          if (rollbackError) {
+            this.logger.error(
+              `Failed to rollback email in Supabase: ${rollbackError.message}`,
+            );
+            // Log the inconsistent state for manual cleanup
+            this.logger.error(
+              `EMAIL INCONSISTENCY: Supabase has ${newEmail}, Database has ${originalEmail} for user ${existingUser.supabaseId} - Manual cleanup required`,
+            );
+          } else {
+            this.logger.log(
+              `Successfully rolled back email in Supabase: ${existingUser.supabaseId}`,
+            );
+          }
+        } catch (rollbackError) {
+          this.logger.error(
+            `Exception during email rollback: ${rollbackError instanceof Error ? rollbackError.message : 'Unknown error'}`,
+          );
+          // Log the inconsistent state for manual cleanup
+          this.logger.error(
+            `EMAIL INCONSISTENCY: Supabase has ${newEmail}, Database has ${originalEmail} for user ${existingUser.supabaseId} - Manual cleanup required`,
+          );
+        }
+      }
+
       this.logger.error(
         `Error updating user ${id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -596,5 +697,37 @@ export class UsersService {
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
     };
+  }
+
+  /**
+   * Utility method to clean up orphaned Supabase users
+   * This can be called manually or via a scheduled job
+   */
+  async cleanupOrphanedSupabaseUser(
+    supabaseUserId: string,
+    email: string,
+  ): Promise<boolean> {
+    try {
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+      const { error } =
+        await supabaseAdmin.auth.admin.deleteUser(supabaseUserId);
+
+      if (error) {
+        this.logger.error(
+          `Failed to cleanup orphaned Supabase user ${supabaseUserId} (${email}): ${error.message}`,
+        );
+        return false;
+      }
+
+      this.logger.log(
+        `Successfully cleaned up orphaned Supabase user: ${supabaseUserId} (${email})`,
+      );
+      return true;
+    } catch (error) {
+      this.logger.error(
+        `Exception during orphaned user cleanup: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return false;
+    }
   }
 }

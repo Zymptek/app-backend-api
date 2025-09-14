@@ -13,7 +13,6 @@ import {
   HttpStatus,
   ValidationPipe,
   ParseIntPipe,
-  BadRequestException,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -33,6 +32,7 @@ import {
 } from './dto';
 import { SupabaseAuthGuard } from '../admin-auth/guards/supabase-auth.guard';
 import { AdminRoleGuard } from '../admin-auth/guards/admin-role.guard';
+import { UuidValidationPipe } from './pipes';
 import { UserType, UserStatus } from '@prisma/client';
 
 @ApiTags('Users Management')
@@ -146,14 +146,9 @@ export class UsersController {
     status: 403,
     description: 'Forbidden - admin role required',
   })
-  async findOne(@Param('id') id: string): Promise<UserResponseDto> {
-    // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      throw new BadRequestException('Invalid user ID format');
-    }
-
+  async findOne(
+    @Param('id', UuidValidationPipe) id: string,
+  ): Promise<UserResponseDto> {
     return this.usersService.findOne(id);
   }
 
@@ -227,16 +222,9 @@ export class UsersController {
     description: 'Forbidden - admin role required',
   })
   async update(
-    @Param('id') id: string,
+    @Param('id', UuidValidationPipe) id: string,
     @Body(ValidationPipe) updateUserDto: UpdateUserDto,
   ): Promise<UserResponseDto> {
-    // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      throw new BadRequestException('Invalid user ID format');
-    }
-
     return this.usersService.update(id, updateUserDto);
   }
 
@@ -268,16 +256,9 @@ export class UsersController {
     description: 'Forbidden - admin role required',
   })
   async suspend(
-    @Param('id') id: string,
+    @Param('id', UuidValidationPipe) id: string,
     @Body(ValidationPipe) suspendUserDto: SuspendUserDto,
   ): Promise<UserResponseDto> {
-    // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      throw new BadRequestException('Invalid user ID format');
-    }
-
     return this.usersService.suspend(id, suspendUserDto);
   }
 
@@ -308,14 +289,9 @@ export class UsersController {
     status: 403,
     description: 'Forbidden - admin role required',
   })
-  async unsuspend(@Param('id') id: string): Promise<UserResponseDto> {
-    // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      throw new BadRequestException('Invalid user ID format');
-    }
-
+  async unsuspend(
+    @Param('id', UuidValidationPipe) id: string,
+  ): Promise<UserResponseDto> {
     return this.usersService.unsuspend(id);
   }
 
@@ -355,14 +331,9 @@ export class UsersController {
     status: 403,
     description: 'Forbidden - admin role required',
   })
-  async delete(@Param('id') id: string): Promise<{ message: string }> {
-    // Validate UUID format
-    const uuidRegex =
-      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(id)) {
-      throw new BadRequestException('Invalid user ID format');
-    }
-
+  async delete(
+    @Param('id', UuidValidationPipe) id: string,
+  ): Promise<{ message: string }> {
     return this.usersService.delete(id);
   }
 }

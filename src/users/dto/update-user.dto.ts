@@ -1,5 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsEnum, IsOptional, IsString } from 'class-validator';
+import {
+  IsBoolean,
+  IsEmail,
+  IsEnum,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 import { UserType, UserStatus } from '@prisma/client';
 
 export class UpdateUserDto {
@@ -86,6 +92,7 @@ export class UpdateUserDto {
     required: false,
   })
   @IsOptional()
+  @IsBoolean()
   emailVerified?: boolean;
 
   @ApiProperty({
@@ -94,5 +101,6 @@ export class UpdateUserDto {
     required: false,
   })
   @IsOptional()
+  @IsBoolean()
   profileComplete?: boolean;
 }

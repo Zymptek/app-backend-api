@@ -496,9 +496,29 @@ export class UsersService {
     id: string,
     suspendUserDto: { reason?: string },
   ): Promise<UserResponseDto> {
+    let supabaseUserDisabled = false;
+    let existingUser: {
+      id: string;
+      supabaseId: string;
+      email: string;
+      userType: UserType;
+      status: UserStatus;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      phone: string | null;
+      country: string | null;
+      emailVerified: boolean;
+      profileComplete: boolean;
+      lastLogin: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      verificationData: unknown;
+    } | null = null;
+
     try {
       // Check if user exists
-      const existingUser = await this.prismaService.withServiceRoleClient(
+      existingUser = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.findUnique({
             where: { id },
@@ -510,22 +530,40 @@ export class UsersService {
         throw new NotFoundException(`User with ID ${id} not found`);
       }
 
-      // Update user status to suspended
+      // Disable user in Supabase Auth FIRST
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+      const { error: supabaseDisableError } =
+        await supabaseAdmin.auth.admin.updateUserById(existingUser.supabaseId, {
+          ban_duration: 'none', // Permanent ban
+        });
+
+      if (supabaseDisableError) {
+        this.logger.error(
+          `Failed to disable user in Supabase: ${supabaseDisableError.message}`,
+        );
+        throw new Error('Failed to disable user in authentication system');
+      }
+
+      supabaseUserDisabled = true;
+      this.logger.log('User disabled in Supabase successfully');
+
+      // Update user status to suspended in database
       const user = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.update({
             where: { id },
             data: {
               status: UserStatus.suspended,
-              verificationData: suspendUserDto.reason
-                ? {
-                    ...((existingUser.verificationData as Record<
-                      string,
-                      unknown
-                    >) || {}),
-                    suspensionReason: suspendUserDto.reason,
-                  }
-                : existingUser.verificationData || undefined,
+              verificationData: {
+                ...((existingUser?.verificationData as Record<
+                  string,
+                  unknown
+                >) || {}),
+                preSuspensionStatus: existingUser?.status,
+                ...(suspendUserDto.reason
+                  ? { suspensionReason: suspendUserDto.reason }
+                  : {}),
+              },
             },
             select: {
               id: true,
@@ -552,6 +590,40 @@ export class UsersService {
 
       return this.mapUserToResponse(user);
     } catch (error) {
+      // Compensating rollback: Re-enable Supabase user if DB update failed
+      if (supabaseUserDisabled && existingUser) {
+        try {
+          const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+          const { error: rollbackError } =
+            await supabaseAdmin.auth.admin.updateUserById(
+              existingUser.supabaseId,
+              {
+                ban_duration: 'none', // Remove ban
+              },
+            );
+
+          if (rollbackError) {
+            this.logger.error(
+              `Failed to rollback user enable in Supabase: ${rollbackError.message}`,
+            );
+            // Log the inconsistent state for manual cleanup
+            this.logger.error(
+              'USER INCONSISTENCY: Supabase user disabled but database not suspended - Manual cleanup required',
+            );
+          } else {
+            this.logger.log('Successfully rolled back user enable in Supabase');
+          }
+        } catch (rollbackError) {
+          this.logger.error(
+            `Exception during user enable rollback: ${rollbackError instanceof Error ? rollbackError.message : 'Unknown error'}`,
+          );
+          // Log the inconsistent state for manual cleanup
+          this.logger.error(
+            'USER INCONSISTENCY: Supabase user disabled but database not suspended - Manual cleanup required',
+          );
+        }
+      }
+
       this.logger.error(
         `Error suspending user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
@@ -563,9 +635,29 @@ export class UsersService {
   }
 
   async unsuspend(id: string): Promise<UserResponseDto> {
+    let supabaseUserEnabled = false;
+    let existingUser: {
+      id: string;
+      supabaseId: string;
+      email: string;
+      userType: UserType;
+      status: UserStatus;
+      firstName: string | null;
+      lastName: string | null;
+      companyName: string | null;
+      phone: string | null;
+      country: string | null;
+      emailVerified: boolean;
+      profileComplete: boolean;
+      lastLogin: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+      verificationData: unknown;
+    } | null = null;
+
     try {
       // Check if user exists
-      const existingUser = await this.prismaService.withServiceRoleClient(
+      existingUser = await this.prismaService.withServiceRoleClient(
         async (client) => {
           return client.user.findUnique({
             where: { id },
@@ -577,13 +669,50 @@ export class UsersService {
         throw new NotFoundException(`User with ID ${id} not found`);
       }
 
-      // Update user status to active
+      // Determine the status to restore (use preSuspensionStatus or fallback to active)
+      const verificationData = existingUser.verificationData as Record<
+        string,
+        unknown
+      > | null;
+      const preSuspensionStatus =
+        verificationData?.preSuspensionStatus as UserStatus;
+      const statusToRestore = preSuspensionStatus || UserStatus.active;
+
+      // Enable user in Supabase Auth FIRST
+      const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+      const { error: supabaseEnableError } =
+        await supabaseAdmin.auth.admin.updateUserById(existingUser.supabaseId, {
+          ban_duration: 'none', // Remove ban to enable user
+        });
+
+      if (supabaseEnableError) {
+        this.logger.error(
+          `Failed to enable user in Supabase: ${supabaseEnableError.message}`,
+        );
+        throw new Error('Failed to enable user in authentication system');
+      }
+
+      supabaseUserEnabled = true;
+      this.logger.log('User enabled in Supabase successfully');
+
+      // Update user status and clear suspension data in database
       const user = await this.prismaService.withServiceRoleClient(
         async (client) => {
+          // Prepare updated verificationData by removing suspension-related fields
+          const updatedVerificationData = verificationData
+            ? { ...verificationData }
+            : {};
+          delete updatedVerificationData.suspensionReason;
+          delete updatedVerificationData.preSuspensionStatus;
+
           return client.user.update({
             where: { id },
             data: {
-              status: UserStatus.active,
+              status: statusToRestore,
+              verificationData:
+                Object.keys(updatedVerificationData).length > 0
+                  ? (updatedVerificationData as Record<string, unknown>)
+                  : undefined,
             },
             select: {
               id: true,
@@ -606,10 +735,48 @@ export class UsersService {
         },
       );
 
-      this.logger.log('User unsuspended successfully');
+      this.logger.log(
+        `User unsuspended successfully and restored to ${statusToRestore} status`,
+      );
 
       return this.mapUserToResponse(user);
     } catch (error) {
+      // Compensating rollback: Re-disable Supabase user if DB update failed
+      if (supabaseUserEnabled && existingUser) {
+        try {
+          const supabaseAdmin = this.supabaseService.getServiceRoleClient();
+          const { error: rollbackError } =
+            await supabaseAdmin.auth.admin.updateUserById(
+              existingUser.supabaseId,
+              {
+                ban_duration: 'none', // Re-ban the user
+              },
+            );
+
+          if (rollbackError) {
+            this.logger.error(
+              `Failed to rollback user disable in Supabase: ${rollbackError.message}`,
+            );
+            // Log the inconsistent state for manual cleanup
+            this.logger.error(
+              'USER INCONSISTENCY: Supabase user enabled but database not active - Manual cleanup required',
+            );
+          } else {
+            this.logger.log(
+              'Successfully rolled back user disable in Supabase',
+            );
+          }
+        } catch (rollbackError) {
+          this.logger.error(
+            `Exception during user disable rollback: ${rollbackError instanceof Error ? rollbackError.message : 'Unknown error'}`,
+          );
+          // Log the inconsistent state for manual cleanup
+          this.logger.error(
+            'USER INCONSISTENCY: Supabase user enabled but database not active - Manual cleanup required',
+          );
+        }
+      }
+
       this.logger.error(
         `Error unsuspending user: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );

@@ -154,13 +154,15 @@ export class AdminAuthService {
           const dbUser = await client.user.findFirst({
             where: {
               supabaseId: user.id,
+              userType: UserType.admin,
+              status: UserStatus.active,
             },
             include: {
               adminProfile: true,
             },
           });
 
-          if (!dbUser || dbUser.userType !== UserType.admin) {
+          if (!dbUser) {
             throw new UnauthorizedException(
               'Invalid user or insufficient permissions',
             );
@@ -208,13 +210,15 @@ export class AdminAuthService {
           const dbUser = await client.user.findFirst({
             where: {
               supabaseId: user.id,
+              userType: UserType.admin,
+              status: UserStatus.active,
             },
             include: {
               adminProfile: true,
             },
           });
 
-          if (!dbUser || dbUser.userType !== UserType.admin) {
+          if (!dbUser) {
             throw new UnauthorizedException(
               'Invalid user or insufficient permissions',
             );
@@ -254,6 +258,7 @@ export class AdminAuthService {
             where: {
               supabaseId: userId,
               userType: UserType.admin,
+              status: UserStatus.active,
             },
             include: {
               adminProfile: true,

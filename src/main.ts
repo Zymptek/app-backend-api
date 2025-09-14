@@ -48,10 +48,26 @@ async function bootstrap() {
   );
 
   // CORS configuration
+  const origins = corsOrigin
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  if (origins.includes('*')) {
+    throw new Error(
+      'CORS_ORIGIN must not contain "*" when credentials are enabled',
+    );
+  }
   app.enableCors({
-    origin: corsOrigin.split(','),
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    origin: origins,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'Accept',
+      'Origin',
+      'X-Requested-With',
+    ],
+    credentials: true,
   });
 
   // API prefix

@@ -13,7 +13,7 @@ import {
   UserResponseDto,
   UserListResponseDto,
 } from './dto';
-import { UserType, UserStatus } from '@prisma/client';
+import { UserType, UserStatus, Prisma } from '@prisma/client';
 
 @Injectable()
 export class UsersService {
@@ -711,7 +711,7 @@ export class UsersService {
               status: statusToRestore,
               verificationData:
                 Object.keys(updatedVerificationData).length > 0
-                  ? (updatedVerificationData as Record<string, unknown>)
+                  ? (updatedVerificationData as Prisma.InputJsonValue)
                   : undefined,
             },
             select: {

@@ -31,9 +31,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       await client.$connect();
       return await client.$transaction(async (tx) => {
         const claims = JSON.stringify({ role: 'service_role' });
-        await tx.$executeRawUnsafe(
-          `SET LOCAL "request.jwt.claims" = '${claims}'`
-        );        
+        await tx.$executeRaw`SELECT set_config('request.jwt.claims', ${claims}, true)`;
         return fn(tx);
       });
     } finally {
@@ -103,9 +101,7 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
       return await client.$transaction(async (tx) => {
         // Set the user context for RLS policies once per transaction
         const claims = JSON.stringify({ role: 'authenticated', sub: userId });
-        await tx.$executeRawUnsafe(
-          `SET LOCAL "request.jwt.claims" = '${claims}'`
-        );
+        await tx.$executeRaw`SELECT set_config('request.jwt.claims', ${claims}, true)`;
         // Execute the function with the transaction client
         return await fn(tx);
       });

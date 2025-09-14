@@ -354,7 +354,7 @@ export class UsersService {
     } | null = null;
 
     try {
-      const { email, userType, ...updateData } = updateUserDto;
+      const { email, userType, status, ...updateData } = updateUserDto;
 
       // Check if user exists
       existingUser = await this.prismaService.withServiceRoleClient(
@@ -373,6 +373,13 @@ export class UsersService {
       if (userType && userType !== existingUser.userType) {
         throw new BadRequestException(
           'User type cannot be changed via this endpoint. User type changes require a separate migration process to handle related profile records safely.',
+        );
+      }
+
+      // Prevent direct status updates to maintain IdP sync
+      if (status !== undefined) {
+        throw new BadRequestException(
+          'User status cannot be changed via this endpoint. Please use the suspend/unsuspend endpoints to manage user status, which properly sync with the identity provider.',
         );
       }
 
@@ -420,7 +427,7 @@ export class UsersService {
             data: {
               ...updateData,
               ...(email ? { email } : {}), // Include email if provided
-              // userType is excluded to prevent orphaned profile records
+              // userType and status are excluded to prevent orphaned profile records and maintain IdP sync
             },
             select: {
               id: true,
@@ -534,7 +541,7 @@ export class UsersService {
       const supabaseAdmin = this.supabaseService.getServiceRoleClient();
       const { error: supabaseDisableError } =
         await supabaseAdmin.auth.admin.updateUserById(existingUser.supabaseId, {
-          ban_duration: 'none', // Permanent ban
+          ban_duration: 'forever', // Permanent ban
         });
 
       if (supabaseDisableError) {
@@ -749,7 +756,7 @@ export class UsersService {
             await supabaseAdmin.auth.admin.updateUserById(
               existingUser.supabaseId,
               {
-                ban_duration: 'none', // Re-ban the user
+                ban_duration: 'forever', // Re-ban the user
               },
             );
 

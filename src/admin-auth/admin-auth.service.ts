@@ -154,13 +154,15 @@ export class AdminAuthService {
           const dbUser = await client.user.findFirst({
             where: {
               supabaseId: user.id,
+              userType: UserType.admin,
+              status: UserStatus.active,
             },
             include: {
               adminProfile: true,
             },
           });
 
-          if (!dbUser || dbUser.userType !== UserType.admin) {
+          if (!dbUser) {
             throw new UnauthorizedException(
               'Invalid user or insufficient permissions',
             );
@@ -208,13 +210,15 @@ export class AdminAuthService {
           const dbUser = await client.user.findFirst({
             where: {
               supabaseId: user.id,
+              userType: UserType.admin,
+              status: UserStatus.active,
             },
             include: {
               adminProfile: true,
             },
           });
 
-          if (!dbUser || dbUser.userType !== UserType.admin) {
+          if (!dbUser) {
             throw new UnauthorizedException(
               'Invalid user or insufficient permissions',
             );
@@ -236,6 +240,55 @@ export class AdminAuthService {
         throw error;
       }
       throw new UnauthorizedException('Token verification failed');
+    }
+  }
+
+  async getCurrentAdmin(userId: string): Promise<{
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    companyName: string;
+    userType: string;
+  }> {
+    try {
+      const user = await this.prismaService.withServiceRoleClient(
+        async (client) => {
+          const dbUser = await client.user.findFirst({
+            where: {
+              supabaseId: userId,
+              userType: UserType.admin,
+              status: UserStatus.active,
+            },
+            include: {
+              adminProfile: true,
+            },
+          });
+
+          if (!dbUser) {
+            throw new UnauthorizedException('Admin user not found');
+          }
+
+          return dbUser;
+        },
+      );
+
+      return {
+        id: user.id,
+        email: user.email,
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        companyName: user.companyName || '',
+        userType: user.userType,
+      };
+    } catch (error) {
+      this.logger.error(
+        `Get current admin error: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      if (error instanceof UnauthorizedException) {
+        throw error;
+      }
+      throw new UnauthorizedException('Failed to get admin information');
     }
   }
 

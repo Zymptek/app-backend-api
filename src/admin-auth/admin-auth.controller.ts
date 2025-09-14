@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Body,
   HttpCode,
   HttpStatus,
@@ -136,5 +137,41 @@ export class AdminAuthController {
     @Body('refreshToken') refreshToken: string,
   ): Promise<AdminAuthResponseDto> {
     return this.adminAuthService.refreshSession(refreshToken);
+  }
+
+  @Get('me')
+  @ApiBearerAuth()
+  @UseGuards(SupabaseAuthGuard, AdminRoleGuard)
+  @ApiOperation({
+    summary: 'Get current admin user',
+    description: 'Get current authenticated admin user information',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Successfully retrieved admin user information',
+    schema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        email: { type: 'string' },
+        firstName: { type: 'string' },
+        lastName: { type: 'string' },
+        companyName: { type: 'string' },
+        userType: { type: 'string' },
+      },
+    },
+  })
+  @ApiResponse({
+    status: 401,
+    description: 'Unauthorized - invalid or expired token',
+  })
+  async getCurrentAdmin(@Req() req: AuthenticatedRequest) {
+    const userId = req.admin?.supabaseUser?.id;
+
+    if (!userId) {
+      throw new UnauthorizedException('User ID not found in request');
+    }
+
+    return this.adminAuthService.getCurrentAdmin(userId);
   }
 }

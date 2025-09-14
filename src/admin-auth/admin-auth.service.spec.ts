@@ -232,4 +232,203 @@ describe('AdminAuthService', () => {
       );
     });
   });
+
+  describe('getCurrentAdmin', () => {
+    it('should successfully get current admin with active status', async () => {
+      const userId = 'supabase-user-id';
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(mockDbUser),
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      const result = await service.getCurrentAdmin(userId);
+
+      expect(result).toEqual({
+        id: 'db-user-id',
+        email: 'admin@zymptek.com',
+        firstName: 'Admin',
+        lastName: 'User',
+        companyName: '',
+        userType: UserType.admin,
+      });
+
+      expect(mockServiceRoleClient.user.findFirst).toHaveBeenCalledWith({
+        where: {
+          supabaseId: userId,
+          userType: UserType.admin,
+          status: UserStatus.active,
+        },
+        include: { adminProfile: true },
+      });
+    });
+
+    it('should throw UnauthorizedException for suspended admin', async () => {
+      const userId = 'supabase-user-id';
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null), // No user found due to status filter
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      await expect(service.getCurrentAdmin(userId)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  describe('refreshSession', () => {
+    it('should successfully refresh session for active admin', async () => {
+      const refreshToken = 'valid-refresh-token';
+
+      mockSupabaseClient.auth.refreshSession.mockResolvedValue({
+        data: {
+          user: mockUser,
+          session: mockSession,
+        },
+        error: null,
+      });
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(mockDbUser),
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      const result = await service.refreshSession(refreshToken);
+
+      expect(result).toEqual({
+        accessToken: 'access-token',
+        refreshToken: 'refresh-token',
+        expiresIn: 3600,
+        tokenType: 'Bearer',
+        admin: expect.objectContaining({
+          id: 'db-user-id',
+          email: 'admin@zymptek.com',
+          userType: UserType.admin,
+        }),
+      });
+
+      expect(mockServiceRoleClient.user.findFirst).toHaveBeenCalledWith({
+        where: {
+          supabaseId: mockUser.id,
+          userType: UserType.admin,
+          status: UserStatus.active,
+        },
+        include: { adminProfile: true },
+      });
+    });
+
+    it('should throw UnauthorizedException for suspended admin during refresh', async () => {
+      const refreshToken = 'valid-refresh-token';
+
+      mockSupabaseClient.auth.refreshSession.mockResolvedValue({
+        data: {
+          user: mockUser,
+          session: mockSession,
+        },
+        error: null,
+      });
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null), // No user found due to status filter
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      await expect(service.refreshSession(refreshToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
+
+  describe('verifyAdminToken', () => {
+    it('should successfully verify token for active admin', async () => {
+      const accessToken = 'valid-access-token';
+
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(mockDbUser),
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      const result = await service.verifyAdminToken(accessToken);
+
+      expect(result).toEqual({
+        ...mockDbUser,
+        supabaseUser: mockUser,
+      });
+
+      expect(mockServiceRoleClient.user.findFirst).toHaveBeenCalledWith({
+        where: {
+          supabaseId: mockUser.id,
+          userType: UserType.admin,
+          status: UserStatus.active,
+        },
+        include: { adminProfile: true },
+      });
+    });
+
+    it('should throw UnauthorizedException for suspended admin during token verification', async () => {
+      const accessToken = 'valid-access-token';
+
+      mockSupabaseClient.auth.getUser.mockResolvedValue({
+        data: { user: mockUser },
+        error: null,
+      });
+
+      const mockServiceRoleClient = {
+        user: {
+          findFirst: jest.fn().mockResolvedValue(null), // No user found due to status filter
+        },
+      };
+
+      (prismaService.withServiceRoleClient as jest.Mock).mockImplementation(
+        async (fn) => {
+          return await fn(mockServiceRoleClient);
+        },
+      );
+
+      await expect(service.verifyAdminToken(accessToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+    });
+  });
 });
